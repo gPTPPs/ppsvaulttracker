@@ -13,21 +13,48 @@ MainComponent::MainComponent()
     // ---- transport ----
     for (auto* b : { &playBtn, &stopBtn })
         addAndMakeVisible (b);
-    playBtn.onClick = [this] { engine.getSequencer().play(); };
-    stopBtn.onClick = [this] { engine.getSequencer().stop(); };
+    playBtn.onClick = [this] { engine.getSequencer().play(); patternEditor.grabKeyboardFocus(); };
+    stopBtn.onClick = [this] { engine.getSequencer().stop(); patternEditor.grabKeyboardFocus(); };
+    for (auto* b : { &playBtn, &stopBtn, &audioBtn, &loadBtn, &editorBtn, &unloadBtn })
+        b->setWantsKeyboardFocus (false);
 
-    auto setupTempoSlider = [this] (juce::Slider& s, double min, double max, double value)
+    // ---- edit-mode toggles ----
+    auto setupToggle = [this] (juce::TextButton& b, bool initial, std::function<void (bool)> apply)
+    {
+        b.setClickingTogglesState (true);
+        b.setToggleState (initial, juce::dontSendNotification);
+        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffb03060));
+        b.setWantsKeyboardFocus (false);   // keep the editor's shortcuts alive
+        b.onClick = [this, &b, apply] { apply (b.getToggleState()); patternEditor.grabKeyboardFocus(); };
+        addAndMakeVisible (b);
+    };
+    setupToggle (recBtn,    false, [this] (bool on) { patternEditor.recEnabled = on; });
+    setupToggle (followBtn, true,  [this] (bool on) { patternEditor.followPlayhead = on; });
+    setupToggle (azertyBtn, true,  [this] (bool on) { patternEditor.azertyLayout = on;
+                                                      azertyBtn.setButtonText (on ? "AZERTY" : "QWERTY"); });
+
+    auto setupIncDec = [this] (juce::Slider& s, double min, double max, double value,
+                               std::function<void (double)> apply)
     {
         s.setSliderStyle (juce::Slider::IncDecButtons);
-        s.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 52, 22);
+        s.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 22);
         s.setRange (min, max, 1.0);
         s.setValue (value, juce::dontSendNotification);
-        s.onValueChange = [this] { applyTempo(); };
+        s.setWantsKeyboardFocus (false);
+        s.onValueChange = [&s, apply] { apply (s.getValue()); };
         addAndMakeVisible (s);
     };
-    setupTempoSlider (bpmSlider,   40.0, 300.0, 125.0);
-    setupTempoSlider (speedSlider,  1.0,  31.0,   6.0);
-    for (auto* l : { &bpmLabel, &speedLabel })
+    setupIncDec (bpmSlider,   40.0, 300.0, 125.0, [this] (double)   { applyTempo(); });
+    setupIncDec (speedSlider,  1.0,  31.0,   6.0, [this] (double)   { applyTempo(); });
+    setupIncDec (stepSlider,   0.0,  16.0,   1.0, [this] (double v) { patternEditor.editStep = (int) v; });
+    setupIncDec (octaveSlider, 1.0,   7.0,   3.0, [this] (double v) { patternEditor.editOctave = (int) v; });
+    setupIncDec (chanSlider,   1.0,   8.0,   1.0, [this] (double v)
+    {
+        if (auto* p = engine.getSequencer().getMutablePattern())
+            p->setNumChannels ((int) v);
+    });
+
+    for (auto* l : { &bpmLabel, &speedLabel, &stepLabel, &octaveLabel, &chanLabel })
     {
         l->setJustificationType (juce::Justification::centredRight);
         addAndMakeVisible (l);
@@ -35,12 +62,12 @@ MainComponent::MainComponent()
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
-    addAndMakeVisible (patternView);
+    addAndMakeVisible (patternEditor);
     addAndMakeVisible (keyboard);
-    keyboard.setKeyPressBaseOctave (4);   // QWERTY row plays notes too
+    keyboard.setKeyPressBaseOctave (4);
 
     refreshStatus();
-    setSize (900, 640);
+    setSize (1240, 720);
 }
 
 void MainComponent::applyTempo()
@@ -71,21 +98,32 @@ void MainComponent::resized()
 
     area.removeFromTop (8);
     auto transport = area.removeFromTop (30);
-    playBtn.setBounds (transport.removeFromLeft (80));
-    transport.removeFromLeft (8);
-    stopBtn.setBounds (transport.removeFromLeft (80));
-    transport.removeFromLeft (16);
-    bpmLabel.setBounds (transport.removeFromLeft (44));
-    bpmSlider.setBounds (transport.removeFromLeft (110));
-    transport.removeFromLeft (16);
-    speedLabel.setBounds (transport.removeFromLeft (54));
-    speedSlider.setBounds (transport.removeFromLeft (110));
+    auto place = [&transport] (juce::Component& c, int w, int gapAfter = 8)
+    {
+        c.setBounds (transport.removeFromLeft (w));
+        transport.removeFromLeft (gapAfter);
+    };
+    place (playBtn, 70);
+    place (stopBtn, 70, 14);
+    place (recBtn, 56);
+    place (followBtn, 72);
+    place (azertyBtn, 80, 14);
+    place (bpmLabel, 38, 2);
+    place (bpmSlider, 96, 10);
+    place (speedLabel, 48, 2);
+    place (speedSlider, 96, 10);
+    place (stepLabel, 38, 2);
+    place (stepSlider, 96, 10);
+    place (octaveLabel, 30, 2);
+    place (octaveSlider, 96, 10);
+    place (chanLabel, 24, 2);
+    place (chanSlider, 96);
 
     area.removeFromTop (8);
     statusLabel.setBounds (area.removeFromTop (24));
     keyboard.setBounds (area.removeFromBottom (96));
     area.removeFromBottom (8);
-    patternView.setBounds (area);
+    patternEditor.setBounds (area);
 }
 
 void MainComponent::showAudioSettings()

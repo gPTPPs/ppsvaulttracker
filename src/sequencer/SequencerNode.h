@@ -36,6 +36,7 @@ public:
 
     void setPattern (std::unique_ptr<Pattern> p) { pattern = std::move (p); }
     const Pattern* getPattern() const            { return pattern.get(); }
+    Pattern* getMutablePattern()                 { return pattern.get(); }   // direct-write editing (CLAUDE.md §3)
 
     // ---- AudioProcessor ----
     void prepareToPlay (double sampleRate, int) override { clock.prepare (sampleRate); }
@@ -65,8 +66,8 @@ private:
     std::atomic<int>    speedAtomic { 6 };
     std::atomic<int>    uiRow { -1 };
 
-    bool wasPlaying = false;   // audio thread only
-    int  activeNote = -1;      // audio thread only
+    bool wasPlaying = false;                       // audio thread only
+    int  activeNotes[Pattern::kMaxChannels] = {};  // audio thread only; 0 = none, else MIDI note + 1
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SequencerNode)
 };

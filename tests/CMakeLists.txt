@@ -7,3 +7,8 @@ add_executable(model_tests ModelTests.cpp)
 target_include_directories(model_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 set_target_properties(model_tests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 add_test(NAME model COMMAND model_tests)
+
+add_executable(edit_tests EditTests.cpp)
+target_include_directories(edit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+set_target_properties(edit_tests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+add_test(NAME edit COMMAND edit_tests)

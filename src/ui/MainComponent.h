@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "engine/HostEngine.h"
-#include "ui/PatternView.h"
+#include "ui/PatternEditor.h"
 
 // Floating window hosting the plugin's own editor (or a generic one).
 class PluginWindow : public juce::DocumentWindow
@@ -58,13 +58,15 @@ private:
     juce::TextButton editorBtn { "Editor" };
     juce::TextButton unloadBtn { "Unload" };
 
-    // transport
+    // transport + edit controls
     juce::TextButton playBtn { "Play" }, stopBtn { "Stop" };
-    juce::Slider bpmSlider, speedSlider;
-    juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" };
+    juce::TextButton recBtn { "Rec" }, followBtn { "Follow" }, azertyBtn { "AZERTY" };
+    juce::Slider bpmSlider, speedSlider, stepSlider, octaveSlider, chanSlider;
+    juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" },
+                stepLabel { {}, "Step" }, octaveLabel { {}, "Oct" }, chanLabel { {}, "Ch" };
 
     juce::Label statusLabel;
-    PatternView patternView { engine };
+    PatternEditor patternEditor { engine };
     juce::MidiKeyboardComponent keyboard { engine.getKeyboardState(),
                                            juce::MidiKeyboardComponent::horizontalKeyboard };
 
