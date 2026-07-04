@@ -2,8 +2,16 @@
 
 MainComponent::MainComponent()
 {
+    // ---- app settings (lame.exe path, later: prefs) ----
+    juce::PropertiesFile::Options opts;
+    opts.applicationName = "PPsVaultTracker";
+    opts.filenameSuffix = ".settings";
+    opts.folderName = "PPsVaultTracker";
+    opts.osxLibrarySubFolder = "Application Support";
+    appProps.setStorageParameters (opts);
+
     // ---- toolbar ----
-    for (auto* b : { &audioBtn, &newBtn, &openBtn, &saveBtn, &saveAsBtn })
+    for (auto* b : { &audioBtn, &newBtn, &openBtn, &saveBtn, &saveAsBtn, &exportBtn })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
@@ -13,6 +21,7 @@ MainComponent::MainComponent()
     openBtn.onClick   = [this] { openProject(); };
     saveBtn.onClick   = [this] { saveProject(); };
     saveAsBtn.onClick = [this] { saveProjectAs(); };
+    exportBtn.onClick = [this] { showExportMenu(); };
 
     // ---- transport ----
     for (auto* b : { &playBtn, &stopBtn })
@@ -283,6 +292,176 @@ void MainComponent::syncFromEngine()
     refreshStatus();
 }
 
+// ---------------------------------------------------------------- exports
+
+namespace
+{
+    void reportExportResult (const juce::String& error, const juce::String& doneMessage)
+    {
+        if (error.isNotEmpty() && error != "Cancelled")
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                    "Export failed", error);
+        else if (error.isEmpty())
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                    "Export", doneMessage);
+    }
+
+    // runs an engine render job with a progress dialog + cancel, async
+    // (JUCE 8 disallows modal loops by default). Self-deleting.
+    struct RenderJob : juce::ThreadWithProgressWindow
+    {
+        RenderJob (const juce::String& title,
+                   std::function<juce::String (HostEngine::Progress)> fn,
+                   juce::String doneMsg)
+            : ThreadWithProgressWindow (title, true, true),
+              job (std::move (fn)), doneMessage (std::move (doneMsg)) {}
+
+        void run() override
+        {
+            error = job ([this] (double p)
+            {
+                setProgress (p);
+                return ! threadShouldExit();
+            });
+        }
+
+        void threadComplete (bool userPressedCancel) override
+        {
+            if (! userPressedCancel)
+                reportExportResult (error, doneMessage);
+            delete this;
+        }
+
+        std::function<juce::String (HostEngine::Progress)> job;
+        juce::String error, doneMessage;
+    };
+}
+
+void MainComponent::showExportMenu()
+{
+    juce::PopupMenu m;
+    m.addItem (1, "MIDI (SMF type 1)...");
+    m.addItem (2, "Stems WAV (24-bit / 48 kHz)...");
+    m.addItem (3, "Master WAV (24-bit / 48 kHz)...");
+    m.addItem (4, "Master MP3 (320 kbps, via lame.exe)...");
+    m.addItem (5, "Tracklist (.txt + .json)...");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (exportBtn),
+        [this] (int r)
+        {
+            switch (r)
+            {
+                case 1: exportMidiFlow(); break;
+                case 2: exportStemsFlow(); break;
+                case 3: exportMasterFlow(); break;
+                case 4: exportMp3Flow(); break;
+                case 5: exportTracklistFlow(); break;
+                default: break;
+            }
+        });
+}
+
+void MainComponent::exportMidiFlow()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Export MIDI",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.mid");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            const auto error = engine.exportMidi (f.withFileExtension (".mid"));
+            reportExportResult (error, "MIDI exported.");
+        });
+}
+
+void MainComponent::exportTracklistFlow()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Export tracklist",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.txt");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            const auto error = engine.exportTracklist (f.withFileExtension (".txt"));
+            reportExportResult (error, "Tracklist exported (.txt + .json).");
+        });
+}
+
+void MainComponent::exportStemsFlow()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Export stems into folder",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectDirectories,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto dir = fc.getResult();
+            if (dir == juce::File()) return;
+            (new RenderJob ("Rendering stems...",
+                            [this, dir] (HostEngine::Progress p) { return engine.renderStems (dir, std::move (p)); },
+                            "Stems rendered into " + dir.getFullPathName()))->launchThread();
+        });
+}
+
+void MainComponent::exportMasterFlow()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Export master WAV",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.wav");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            (new RenderJob ("Rendering master...",
+                            [this, f] (HostEngine::Progress p)
+                            { return engine.renderMasterWav (f.withFileExtension (".wav"), std::move (p)); },
+                            "Master WAV rendered."))->launchThread();
+        });
+}
+
+juce::File MainComponent::getLamePath()
+{
+    return juce::File (appProps.getUserSettings()->getValue ("lamePath"));
+}
+
+void MainComponent::exportMp3Flow()
+{
+    if (! getLamePath().existsAsFile())
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Locate lame.exe (one-time setup)",
+            juce::File::getSpecialLocation (juce::File::userHomeDirectory), "*.exe");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectFiles,
+            [this] (const juce::FileChooser& fc)
+            {
+                const auto exe = fc.getResult();
+                if (! exe.existsAsFile()) return;
+                appProps.getUserSettings()->setValue ("lamePath", exe.getFullPathName());
+                appProps.getUserSettings()->saveIfNeeded();
+                exportMp3Flow();   // resume with the path configured
+            });
+        return;
+    }
+
+    chooser = std::make_unique<juce::FileChooser> ("Export MP3",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.mp3");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            (new RenderJob ("Rendering MP3...",
+                            [this, f] (HostEngine::Progress p)
+                            { return engine.exportMp3 (f.withFileExtension (".mp3"), getLamePath(), std::move (p)); },
+                            "MP3 exported."))->launchThread();
+        });
+}
+
 void MainComponent::updateTitle()
 {
     if (auto* dw = dynamic_cast<juce::DocumentWindow*> (getTopLevelComponent()))
@@ -311,6 +490,7 @@ void MainComponent::resized()
     placeBar (openBtn, 84);
     placeBar (saveBtn, 70);
     placeBar (saveAsBtn, 96);
+    placeBar (exportBtn, 90);
 
     area.removeFromTop (6);
     auto transport = area.removeFromTop (30);

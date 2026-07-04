@@ -66,7 +66,16 @@ private:
     // toolbar
     juce::TextButton audioBtn { "Audio/MIDI..." };
     juce::TextButton newBtn { "New" }, openBtn { "Open..." },
-                     saveBtn { "Save" }, saveAsBtn { "Save As..." };
+                     saveBtn { "Save" }, saveAsBtn { "Save As..." },
+                     exportBtn { "Export..." };
+    juce::ApplicationProperties appProps;   // lame.exe path etc.
+    void showExportMenu();
+    void exportMidiFlow();
+    void exportStemsFlow();
+    void exportMasterFlow();
+    void exportMp3Flow();
+    void exportTracklistFlow();
+    juce::File getLamePath();
     std::unique_ptr<juce::FileChooser> chooser;
     juce::uint32 lastAutosaveMs = 0;
     juce::String savedStateJson;   // last saved/loaded state, for the dirty check

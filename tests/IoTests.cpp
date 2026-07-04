@@ -1,7 +1,8 @@
-// Unit tests for the .ubt serialisation layer (ProjectIO): full round-trip
-// plus strict validation of malformed / hostile input.
+// Unit tests for the I/O layer: .ubt serialisation (round-trip + hostile
+// input) and MIDI export tick math.
 #include <cstdio>
 #include "io/ProjectIO.h"
+#include "io/MidiExport.h"
 
 static int failures = 0;
 
@@ -96,11 +97,67 @@ static void testClampsHostileValues()
     CHECK (ProjectIO::songFromVar (bad2, s).isNotEmpty());
 }
 
+static void testMidiExport()
+{
+    Song s;
+    s.setNumChannels (2);
+    // ch0: note at row 0, replaced at row 4; ch1: note at row 2, "===" at row 6
+    s.getPattern (0)->at (0, 0) = { 60, 0, 64, 0, 0 };
+    s.getPattern (0)->at (4, 0) = { 62, 0, 32, 0, 0 };
+    s.getPattern (0)->at (2, 1) = { 45, 0, 64, 0, 0 };
+    s.getPattern (0)->at (6, 1) = { Cell::kNoteOff, 0, 64, 0, 0 };
+
+    const auto mf = MidiExport::songToMidi (s, 125.0, 6, { "Lead", "Bass" });
+
+    CHECK ((int) mf.getTimeFormat() == MidiExport::kPpq);
+    CHECK (mf.getNumTracks() == 3);   // tempo + 2 channels
+
+    const int rt = MidiExport::rowTicks (6);
+    CHECK (rt == 240);   // PPQ 960: speed-6 row = 1/16 = 240 ticks
+
+    // channel 0 track: on@0, off@4*240, on@4*240
+    const auto* t0 = mf.getTrack (1);
+    int ons = 0, offs = 0;
+    double firstOn = -1, firstOff = -1;
+    for (int i = 0; i < t0->getNumEvents(); ++i)
+    {
+        const auto& m = t0->getEventPointer (i)->message;
+        if (m.isNoteOn())  { if (ons == 0)  firstOn  = m.getTimeStamp(); ++ons; }
+        if (m.isNoteOff()) { if (offs == 0) firstOff = m.getTimeStamp(); ++offs; }
+    }
+    CHECK (ons == 2 && offs == 2);
+    CHECK (firstOn == 0.0);
+    CHECK (firstOff == 4.0 * rt);
+
+    // channel 1 track: explicit note-off at row 6
+    const auto* t1 = mf.getTrack (2);
+    bool offAtRow6 = false;
+    for (int i = 0; i < t1->getNumEvents(); ++i)
+    {
+        const auto& m = t1->getEventPointer (i)->message;
+        if (m.isNoteOff() && m.getTimeStamp() == 6.0 * rt)
+            offAtRow6 = true;
+    }
+    CHECK (offAtRow6);
+
+    // tempo meta: 125 BPM -> 480000 us per quarter
+    const auto* tt = mf.getTrack (0);
+    bool tempoOk = false;
+    for (int i = 0; i < tt->getNumEvents(); ++i)
+    {
+        const auto& m = tt->getEventPointer (i)->message;
+        if (m.isTempoMetaEvent())
+            tempoOk = std::abs (m.getTempoSecondsPerQuarterNote() - 0.48) < 1e-6;
+    }
+    CHECK (tempoOk);
+}
+
 int main()
 {
     testRoundTrip();
     testRejectsGarbage();
     testClampsHostileValues();
+    testMidiExport();
 
     if (failures == 0)
         std::puts ("io tests: all passed");

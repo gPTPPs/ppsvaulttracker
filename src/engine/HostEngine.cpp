@@ -1,6 +1,7 @@
 #include "engine/HostEngine.h"
 #include "model/DemoPattern.h"
 #include "io/ProjectIO.h"
+#include "io/MidiExport.h"
 
 HostEngine::HostEngine()
 {
@@ -535,6 +536,181 @@ void HostEngine::autosaveBackup()
         files.getReference (0).deleteFile();
         files.remove (0);
     }
+}
+
+// ---------------------------------------------------------------- exports
+
+juce::String HostEngine::exportMidi (const juce::File& dest)
+{
+    juce::StringArray names;
+    for (int ch = 0; ch < song.getNumChannels(); ++ch)
+        names.add (slots[ch].instrumentName);
+    return MidiExport::writeMidiFile (song, sequencer->getBpm(), sequencer->getSpeed(), names, dest);
+}
+
+juce::String HostEngine::exportTracklist (const juce::File& destTxt)
+{
+    juce::String txt = "PPsVaultTracker tracklist";
+    if (hasProject())
+        txt += " - " + projectDir.getFileNameWithoutExtension();
+    txt += "\n\n";
+
+    juce::Array<juce::var> jsonTracks;
+    for (int ch = 0; ch < song.getNumChannels(); ++ch)
+    {
+        const auto& s = slots[ch];
+        const auto name = s.instrumentName.isNotEmpty() ? s.instrumentName : juce::String ("(empty)");
+        txt << "Track " << juce::String (ch + 1).paddedLeft ('0', 2) << ": " << name;
+        if (s.instrument != nullptr)
+            txt << "  |  " << s.instrumentDesc.manufacturerName
+                << "  |  " << s.instrumentDesc.fileOrIdentifier
+                << "  |  " << s.instrumentDesc.createIdentifierString();
+        txt << "\n";
+
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("track", ch + 1);
+        o->setProperty ("instrument", name);
+        if (s.instrument != nullptr)
+        {
+            o->setProperty ("manufacturer", s.instrumentDesc.manufacturerName);
+            o->setProperty ("path", s.instrumentDesc.fileOrIdentifier);
+            o->setProperty ("uid", s.instrumentDesc.createIdentifierString());
+        }
+        jsonTracks.add (juce::var (o));
+    }
+
+    if (! destTxt.replaceWithText (txt))
+        return "Cannot write " + destTxt.getFullPathName();
+    destTxt.withFileExtension (".json").replaceWithText (juce::JSON::toString (juce::var (jsonTracks)));
+    return {};
+}
+
+juce::String HostEngine::renderOffline (const juce::File& wavFile, int soloChannel,
+                                        double sampleRate, int bitDepth, const Progress& progress)
+{
+    const int block = 512;
+    graph.setPlayConfigDetails (0, 2, sampleRate, block);
+    graph.prepareToPlay (sampleRate, block);
+
+    // solo the target channel directly on the strips (user solo/mute state
+    // untouched — restored via updateMuteStates() afterwards)
+    if (soloChannel >= 0)
+        for (int ch = 0; ch < kMixChannels; ++ch)
+            strips[ch]->setEffectiveMute (ch != soloChannel);
+    else
+        updateMuteStates();
+
+    juce::int64 totalRows = 0;
+    for (int i = 0; i < song.orderLen; ++i)
+        if (auto* p = song.getPattern (song.order[i]))
+            totalRows += p->getNumRows();
+    const double rowSec = 2.5 * sequencer->getSpeed() / sequencer->getBpm();
+    const auto songSamples = (juce::int64) ((double) totalRows * rowSec * sampleRate);
+    const auto tailSamples = (juce::int64) (3.0 * sampleRate);
+    const auto total = songSamples + tailSamples;
+
+    wavFile.deleteFile();
+    auto stream = wavFile.createOutputStream();
+    if (stream == nullptr)
+        return "Cannot write " + wavFile.getFullPathName();
+    juce::WavAudioFormat fmt;
+    std::unique_ptr<juce::AudioFormatWriter> writer (
+        fmt.createWriterFor (stream.get(), sampleRate, 2, bitDepth, {}, 0));
+    if (writer == nullptr)
+        return "Cannot create WAV writer (" + juce::String (bitDepth) + " bit)";
+    stream.release();   // the writer owns it now
+
+    const bool prevSongMode = sequencer->isSongMode();
+    sequencer->setSongMode (true);
+    sequencer->play();
+
+    juce::AudioBuffer<float> buf (2, block);
+    juce::String error;
+    for (juce::int64 done = 0; done < total; done += block)
+    {
+        if (done >= songSamples && sequencer->isPlaying())
+            sequencer->stop();   // note-offs, then let the tail ring out
+
+        buf.clear();
+        juce::MidiBuffer midi;
+        graph.processBlock (buf, midi);
+        writer->writeFromAudioSampleBuffer (buf, 0, block);
+
+        if (progress && ! progress ((double) done / (double) total))
+        {
+            error = "Cancelled";
+            break;
+        }
+    }
+
+    sequencer->stop();
+    sequencer->setSongMode (prevSongMode);
+    writer.reset();
+    updateMuteStates();
+    if (error.isNotEmpty())
+        wavFile.deleteFile();
+    return error;
+}
+
+juce::String HostEngine::renderStems (const juce::File& destDir, Progress progress)
+{
+    destDir.createDirectory();
+    ScopedDetach detach (*this);
+    graph.setNonRealtime (true);
+
+    const int active = song.getNumChannels();
+    const int totalPasses = active + 1;
+    juce::String error;
+
+    for (int ch = 0; ch < active && error.isEmpty(); ++ch)
+    {
+        const auto base = slots[ch].instrumentName.isNotEmpty() ? slots[ch].instrumentName
+                                                                : juce::String ("empty");
+        const auto name = "stem-" + juce::String (ch + 1).paddedLeft ('0', 2) + "-"
+                        + juce::File::createLegalFileName (base) + ".wav";
+        error = renderOffline (destDir.getChildFile (name), ch, 48000.0, 24,
+            [&] (double p) { return progress == nullptr || progress ((ch + p) / totalPasses); });
+    }
+    if (error.isEmpty())
+        error = renderOffline (destDir.getChildFile ("master.wav"), -1, 48000.0, 24,
+            [&] (double p) { return progress == nullptr || progress ((active + p) / totalPasses); });
+
+    graph.setNonRealtime (false);
+    return error;
+}
+
+juce::String HostEngine::renderMasterWav (const juce::File& dest, Progress progress)
+{
+    ScopedDetach detach (*this);
+    graph.setNonRealtime (true);
+    const auto error = renderOffline (dest, -1, 48000.0, 24, progress);
+    graph.setNonRealtime (false);
+    return error;
+}
+
+juce::String HostEngine::exportMp3 (const juce::File& dest, const juce::File& lameExe, Progress progress)
+{
+    if (! lameExe.existsAsFile())
+        return "lame.exe not found: " + lameExe.getFullPathName();
+
+    auto tmpWav = dest.getSiblingFile (dest.getFileNameWithoutExtension() + "-render.wav");
+    if (auto error = renderMasterWav (tmpWav, progress); error.isNotEmpty())
+    {
+        tmpWav.deleteFile();
+        return error;
+    }
+
+    juce::ChildProcess lame;
+    if (! lame.start (juce::StringArray { lameExe.getFullPathName(), "-b", "320",
+                                          tmpWav.getFullPathName(), dest.getFullPathName() }))
+    {
+        tmpWav.deleteFile();
+        return "Cannot start lame.exe";
+    }
+    lame.waitForProcessToFinish (300'000);
+    const bool ok = lame.getExitCode() == 0 && dest.existsAsFile();
+    tmpWav.deleteFile();
+    return ok ? juce::String() : "lame.exe failed (exit " + juce::String (lame.getExitCode()) + ")";
 }
 
 // ---------------------------------------------------------------- mixer

@@ -46,6 +46,16 @@ public:
     juce::File getProjectDir() const { return projectDir; }
     juce::String getStateAsJson()    { return juce::JSON::toString (buildProjectVar (false)); }   // dirty-check
 
+    // ---- exports (5b) ----
+    // progress callback: return false to cancel. Render functions may run on
+    // a worker thread (the player is detached for the duration).
+    using Progress = std::function<bool (double)>;
+    juce::String exportMidi (const juce::File& dest);
+    juce::String exportTracklist (const juce::File& destTxt);              // writes .txt + .json sibling
+    juce::String renderStems (const juce::File& destDir, Progress p);      // one WAV per channel + master
+    juce::String renderMasterWav (const juce::File& dest, Progress p);
+    juce::String exportMp3 (const juce::File& dest, const juce::File& lameExe, Progress p);
+
     // ---- structural operations (message thread; audio briefly detached) ----
     juce::String loadInstrument (int ch, const juce::File& vst3File);
     void unloadInstrument (int ch);
@@ -97,6 +107,8 @@ private:
     void updateMuteStates();
     void unloadAllPluginsDetached();
     juce::var buildProjectVar (bool writeStates);   // writeStates -> plugins/*.state next to projectDir
+    juce::String renderOffline (const juce::File& wavFile, int soloChannel /* -1 = full mix */,
+                                double sampleRate, int bitDepth, const Progress& progress);
     juce::String restorePlugins (const juce::var& root, juce::StringArray& warnings);   // call detached
     void handleNoteOn  (juce::MidiKeyboardState*, int channel, int note, float velocity) override;
     void handleNoteOff (juce::MidiKeyboardState*, int channel, int note, float velocity) override;
