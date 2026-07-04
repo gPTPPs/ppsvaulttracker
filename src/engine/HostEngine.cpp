@@ -2,6 +2,7 @@
 #include "model/DemoPattern.h"
 #include "io/ProjectIO.h"
 #include "io/MidiExport.h"
+#include "io/ModImport.h"
 
 HostEngine::HostEngine()
 {
@@ -711,6 +712,26 @@ juce::String HostEngine::exportMp3 (const juce::File& dest, const juce::File& la
     const bool ok = lame.getExitCode() == 0 && dest.existsAsFile();
     tmpWav.deleteFile();
     return ok ? juce::String() : "lame.exe failed (exit " + juce::String (lame.getExitCode()) + ")";
+}
+
+// ---------------------------------------------------------------- import
+
+juce::String HostEngine::importModule (const juce::File& modFile, juce::StringArray& warnings)
+{
+    Song imported;
+    double bpm = 125.0;
+    int speed = 6;
+    if (auto err = ModImport::importFile (modFile, imported, kMixChannels, bpm, speed, warnings);
+        err.isNotEmpty())
+        return err;
+
+    sequencer->stop();
+    ScopedDetach detach (*this);
+    song = std::move (imported);
+    sequencer->setSong (&song);
+    sequencer->setEditPatternIndex (0);
+    sequencer->setTempo (bpm, speed);
+    return {};
 }
 
 // ---------------------------------------------------------------- mixer

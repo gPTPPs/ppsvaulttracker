@@ -1,4 +1,5 @@
 #include "ui/MainComponent.h"
+#include "io/ModImport.h"
 
 MainComponent::MainComponent()
 {
@@ -11,7 +12,7 @@ MainComponent::MainComponent()
     appProps.setStorageParameters (opts);
 
     // ---- toolbar ----
-    for (auto* b : { &audioBtn, &newBtn, &openBtn, &saveBtn, &saveAsBtn, &exportBtn })
+    for (auto* b : { &audioBtn, &newBtn, &openBtn, &saveBtn, &saveAsBtn, &exportBtn, &importBtn })
     {
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
@@ -22,6 +23,10 @@ MainComponent::MainComponent()
     saveBtn.onClick   = [this] { saveProject(); };
     saveAsBtn.onClick = [this] { saveProjectAs(); };
     exportBtn.onClick = [this] { showExportMenu(); };
+    importBtn.onClick = [this] { importModuleFlow(); };
+    importBtn.setEnabled (ModImport::isAvailable());
+    if (! ModImport::isAvailable())
+        importBtn.setTooltip ("Built without libopenmpt");
 
     // ---- transport ----
     for (auto* b : { &playBtn, &stopBtn })
@@ -462,6 +467,36 @@ void MainComponent::exportMp3Flow()
         });
 }
 
+void MainComponent::importModuleFlow()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Import module (level 1: notes only)",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+        "*.mod;*.xm;*.s3m;*.it");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectFiles,
+        [this] (const juce::FileChooser& fc)
+        {
+            const auto f = fc.getResult();
+            if (! f.existsAsFile())
+                return;
+
+            juce::StringArray warnings;
+            const auto error = engine.importModule (f, warnings);
+            if (error.isNotEmpty())
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                        "Import failed", error);
+                return;
+            }
+            syncFromEngine();
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                "Module imported",
+                "Notes, order list and tempo were imported.\n"
+                "Load an instrument on each channel to hear it.\n\n"
+                + warnings.joinIntoString ("\n"));
+        });
+}
+
 void MainComponent::updateTitle()
 {
     if (auto* dw = dynamic_cast<juce::DocumentWindow*> (getTopLevelComponent()))
@@ -491,6 +526,7 @@ void MainComponent::resized()
     placeBar (saveBtn, 70);
     placeBar (saveAsBtn, 96);
     placeBar (exportBtn, 90);
+    placeBar (importBtn, 90);
 
     area.removeFromTop (6);
     auto transport = area.removeFromTop (30);

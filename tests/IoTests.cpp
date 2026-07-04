@@ -3,6 +3,7 @@
 #include <cstdio>
 #include "io/ProjectIO.h"
 #include "io/MidiExport.h"
+#include "io/ModImportMapping.h"
 
 static int failures = 0;
 
@@ -152,12 +153,30 @@ static void testMidiExport()
     CHECK (tempoOk);
 }
 
+static void testModMapping()
+{
+    using namespace ModImportMapping;
+    CHECK (noteFromOpenMpt (0) == Cell::kEmpty);
+    CHECK (noteFromOpenMpt (61) == 60);              // OpenMPT middle C -> MIDI 60
+    CHECK (noteFromOpenMpt (1) == 1);                // clamped low end
+    CHECK (noteFromOpenMpt (253) == Cell::kNoteOff); // fade
+    CHECK (noteFromOpenMpt (254) == Cell::kNoteOff); // note cut
+    CHECK (noteFromOpenMpt (255) == Cell::kNoteOff); // key off
+    CHECK (noteFromOpenMpt (-5) == Cell::kEmpty);
+
+    CHECK (volumeFromOpenMpt (1, 40) == 40);         // VOLCMD_VOLUME passes through
+    CHECK (volumeFromOpenMpt (1, 999) == 64);        // clamped
+    CHECK (volumeFromOpenMpt (0, 12) == 64);         // no volume command -> default
+    CHECK (volumeFromOpenMpt (5, 12) == 64);         // other volcmd -> default
+}
+
 int main()
 {
     testRoundTrip();
     testRejectsGarbage();
     testClampsHostileValues();
     testMidiExport();
+    testModMapping();
 
     if (failures == 0)
         std::puts ("io tests: all passed");

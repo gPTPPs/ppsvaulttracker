@@ -8,7 +8,9 @@ $cmake = Join-Path $vsInstall 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMak
 
 Write-Host "CMake: $cmake"
 Write-Host "Configuring..."
-& $cmake -S $root -B (Join-Path $root 'build') -G "Visual Studio 17 2022" -A x64
+# local build: module import enabled via the libopenmpt devel package
+& $cmake -S $root -B (Join-Path $root 'build') -G "Visual Studio 17 2022" -A x64 `
+    -DPVT_LIBOPENMPT_DIR="D:/Audio/libopenmpt"
 if ($LASTEXITCODE -ne 0) { throw "Configure failed" }
 
 Write-Host "Building (Release)..."

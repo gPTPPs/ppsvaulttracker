@@ -56,6 +56,9 @@ public:
     juce::String renderMasterWav (const juce::File& dest, Progress p);
     juce::String exportMp3 (const juce::File& dest, const juce::File& lameExe, Progress p);
 
+    // ---- import (5c): module -> Song, instruments stay loaded ----
+    juce::String importModule (const juce::File& modFile, juce::StringArray& warnings);
+
     // ---- structural operations (message thread; audio briefly detached) ----
     juce::String loadInstrument (int ch, const juce::File& vst3File);
     void unloadInstrument (int ch);

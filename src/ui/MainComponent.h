@@ -67,7 +67,8 @@ private:
     juce::TextButton audioBtn { "Audio/MIDI..." };
     juce::TextButton newBtn { "New" }, openBtn { "Open..." },
                      saveBtn { "Save" }, saveAsBtn { "Save As..." },
-                     exportBtn { "Export..." };
+                     exportBtn { "Export..." }, importBtn { "Import..." };
+    void importModuleFlow();
     juce::ApplicationProperties appProps;   // lame.exe path etc.
     void showExportMenu();
     void exportMidiFlow();

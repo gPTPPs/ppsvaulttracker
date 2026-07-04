@@ -29,10 +29,22 @@ jobs:
             libfreetype6-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
             libxinerama-dev libxrandr-dev libxrender-dev \
-            libglu1-mesa-dev mesa-common-dev
+            libglu1-mesa-dev mesa-common-dev libopenmpt-dev
 
-      - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Fetch libopenmpt devel package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl.exe -L -o libopenmpt.zip "https://lib.openmpt.org/files/libopenmpt/dev/libopenmpt-0.8.7+release.dev.windows.vs2022.zip"
+          Expand-Archive libopenmpt.zip libopenmpt-dev
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPVT_LIBOPENMPT_SYSTEM=ON
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPVT_LIBOPENMPT_DIR="${{ github.workspace }}/libopenmpt-dev"
 
       - name: Build
         run: cmake --build build --config Release --parallel

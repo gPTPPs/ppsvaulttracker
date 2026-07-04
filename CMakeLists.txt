@@ -24,6 +24,7 @@ target_sources(PPsVaultTracker PRIVATE
     src/Main.cpp
     src/engine/HostEngine.cpp
     src/io/MidiExport.cpp
+    src/io/ModImport.cpp
     src/io/ProjectIO.cpp
     src/sequencer/SequencerNode.cpp
     src/ui/MainComponent.cpp
@@ -44,6 +45,28 @@ target_link_libraries(PPsVaultTracker PRIVATE
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+# Optional libopenmpt (module import, BSD-3-Clause) — never vendored.
+#   Windows: -DPVT_LIBOPENMPT_DIR=<official devel package root (inc/, lib/amd64/, bin/amd64/)>
+#   Linux:   -DPVT_LIBOPENMPT_SYSTEM=ON (apt install libopenmpt-dev)
+set(PVT_LIBOPENMPT_DIR "" CACHE PATH "libopenmpt Windows devel package root")
+option(PVT_LIBOPENMPT_SYSTEM "Link the system libopenmpt (Linux)" OFF)
+
+if(PVT_LIBOPENMPT_SYSTEM)
+    target_compile_definitions(PPsVaultTracker PRIVATE PVT_HAS_LIBOPENMPT=1)
+    target_link_libraries(PPsVaultTracker PRIVATE openmpt)
+elseif(PVT_LIBOPENMPT_DIR)
+    if(NOT EXISTS "${PVT_LIBOPENMPT_DIR}/inc/libopenmpt/libopenmpt.hpp")
+        message(FATAL_ERROR "PVT_LIBOPENMPT_DIR does not look like the libopenmpt devel package")
+    endif()
+    target_compile_definitions(PPsVaultTracker PRIVATE PVT_HAS_LIBOPENMPT=1)
+    target_include_directories(PPsVaultTracker PRIVATE "${PVT_LIBOPENMPT_DIR}/inc")
+    target_link_libraries(PPsVaultTracker PRIVATE "${PVT_LIBOPENMPT_DIR}/lib/amd64/libopenmpt.lib")
+    add_custom_command(TARGET PPsVaultTracker POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${PVT_LIBOPENMPT_DIR}/bin/amd64"
+            "$<TARGET_FILE_DIR:PPsVaultTracker>")
+endif()
 
 enable_testing()
 add_subdirectory(tests)
