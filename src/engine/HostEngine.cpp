@@ -1,4 +1,5 @@
 #include "engine/HostEngine.h"
+#include "model/DemoPattern.h"
 
 HostEngine::HostEngine()
 {
@@ -8,6 +9,11 @@ HostEngine::HostEngine()
     using IO = juce::AudioProcessorGraph::AudioGraphIOProcessor;
     audioOutNode = graph.addNode (std::make_unique<IO> (IO::audioOutputNode));
     midiInNode   = graph.addNode (std::make_unique<IO> (IO::midiInputNode));
+
+    auto seq = std::make_unique<SequencerNode>();
+    sequencer = seq.get();
+    sequencer->setPattern (makeDemoPattern());   // installed before audio starts
+    seqNode = graph.addNode (std::move (seq));
 
     deviceManager.initialiseWithDefaultDevices (0, 2);
     player.setProcessor (&graph);
@@ -58,7 +64,10 @@ juce::String HostEngine::loadPlugin (const juce::File& vst3File)
     pluginName = instance->getName();
     pluginNode = graph.addNode (std::move (instance));
 
+    // live MIDI and sequencer MIDI both feed the plugin (the graph merges them)
     graph.addConnection ({ { midiInNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex },
+                           { pluginNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex } });
+    graph.addConnection ({ { seqNode->nodeID,    juce::AudioProcessorGraph::midiChannelIndex },
                            { pluginNode->nodeID, juce::AudioProcessorGraph::midiChannelIndex } });
     const int chans = juce::jmin (2, pluginNode->getProcessor()->getTotalNumOutputChannels());
     for (int ch = 0; ch < chans; ++ch)

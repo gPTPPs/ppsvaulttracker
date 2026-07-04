@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "engine/HostEngine.h"
+#include "ui/PatternView.h"
 
 // Floating window hosting the plugin's own editor (or a generic one).
 class PluginWindow : public juce::DocumentWindow
@@ -30,8 +31,9 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginWindow)
 };
 
-// Phase-1 main view: toolbar (audio settings / load VST3 / editor / unload),
-// status line, on-screen MIDI keyboard.
+// Main view: toolbar (audio settings / load VST3 / editor / unload),
+// transport bar (play/stop, BPM, speed), pattern view, status line,
+// on-screen MIDI keyboard.
 class MainComponent : public juce::Component
 {
 public:
@@ -47,6 +49,7 @@ private:
     void showEditor();
     void unload();
     void refreshStatus();
+    void applyTempo();
 
     HostEngine engine;
 
@@ -54,7 +57,14 @@ private:
     juce::TextButton loadBtn   { "Load VST3..." };
     juce::TextButton editorBtn { "Editor" };
     juce::TextButton unloadBtn { "Unload" };
+
+    // transport
+    juce::TextButton playBtn { "Play" }, stopBtn { "Stop" };
+    juce::Slider bpmSlider, speedSlider;
+    juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" };
+
     juce::Label statusLabel;
+    PatternView patternView { engine };
     juce::MidiKeyboardComponent keyboard { engine.getKeyboardState(),
                                            juce::MidiKeyboardComponent::horizontalKeyboard };
 

@@ -10,13 +10,42 @@ MainComponent::MainComponent()
     editorBtn.onClick = [this] { showEditor(); };
     unloadBtn.onClick = [this] { unload(); };
 
+    // ---- transport ----
+    for (auto* b : { &playBtn, &stopBtn })
+        addAndMakeVisible (b);
+    playBtn.onClick = [this] { engine.getSequencer().play(); };
+    stopBtn.onClick = [this] { engine.getSequencer().stop(); };
+
+    auto setupTempoSlider = [this] (juce::Slider& s, double min, double max, double value)
+    {
+        s.setSliderStyle (juce::Slider::IncDecButtons);
+        s.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 52, 22);
+        s.setRange (min, max, 1.0);
+        s.setValue (value, juce::dontSendNotification);
+        s.onValueChange = [this] { applyTempo(); };
+        addAndMakeVisible (s);
+    };
+    setupTempoSlider (bpmSlider,   40.0, 300.0, 125.0);
+    setupTempoSlider (speedSlider,  1.0,  31.0,   6.0);
+    for (auto* l : { &bpmLabel, &speedLabel })
+    {
+        l->setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (l);
+    }
+
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
+    addAndMakeVisible (patternView);
     addAndMakeVisible (keyboard);
     keyboard.setKeyPressBaseOctave (4);   // QWERTY row plays notes too
 
     refreshStatus();
-    setSize (900, 320);
+    setSize (900, 640);
+}
+
+void MainComponent::applyTempo()
+{
+    engine.getSequencer().setTempo (bpmSlider.getValue(), (int) speedSlider.getValue());
 }
 
 MainComponent::~MainComponent()
@@ -32,15 +61,31 @@ void MainComponent::paint (juce::Graphics& g)
 void MainComponent::resized()
 {
     auto area = getLocalBounds().reduced (10);
+
     auto bar = area.removeFromTop (32);
     for (auto* b : { &audioBtn, &loadBtn, &editorBtn, &unloadBtn })
     {
         b->setBounds (bar.removeFromLeft (110));
         bar.removeFromLeft (8);
     }
+
+    area.removeFromTop (8);
+    auto transport = area.removeFromTop (30);
+    playBtn.setBounds (transport.removeFromLeft (80));
+    transport.removeFromLeft (8);
+    stopBtn.setBounds (transport.removeFromLeft (80));
+    transport.removeFromLeft (16);
+    bpmLabel.setBounds (transport.removeFromLeft (44));
+    bpmSlider.setBounds (transport.removeFromLeft (110));
+    transport.removeFromLeft (16);
+    speedLabel.setBounds (transport.removeFromLeft (54));
+    speedSlider.setBounds (transport.removeFromLeft (110));
+
     area.removeFromTop (8);
     statusLabel.setBounds (area.removeFromTop (24));
     keyboard.setBounds (area.removeFromBottom (96));
+    area.removeFromBottom (8);
+    patternView.setBounds (area);
 }
 
 void MainComponent::showAudioSettings()

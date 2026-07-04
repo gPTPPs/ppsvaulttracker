@@ -1,7 +1,8 @@
 #pragma once
 #include <JuceHeader.h>
+#include "sequencer/SequencerNode.h"
 
-// Phase-1 host engine: AudioProcessorGraph (MIDI in -> plugin -> audio out)
+// Host engine: AudioProcessorGraph (MIDI in + sequencer -> plugin -> audio out)
 // driven by an AudioProcessorPlayer.
 //
 // Realtime rules (no alloc / lock / IO in the audio callback) hold by
@@ -16,6 +17,7 @@ public:
 
     juce::AudioDeviceManager& getDeviceManager() { return deviceManager; }
     juce::MidiKeyboardState&  getKeyboardState() { return keyboardState; }
+    SequencerNode&            getSequencer()     { return *sequencer; }
 
     // Loads the first VST3 found in the given file, replacing any current one.
     // Returns an empty string on success, an error message otherwise.
@@ -38,7 +40,8 @@ private:
     juce::AudioProcessorPlayer player;
     juce::MidiKeyboardState keyboardState;
 
-    juce::AudioProcessorGraph::Node::Ptr audioOutNode, midiInNode, pluginNode;
+    juce::AudioProcessorGraph::Node::Ptr audioOutNode, midiInNode, seqNode, pluginNode;
+    SequencerNode* sequencer = nullptr;   // owned by seqNode
     juce::String pluginName;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HostEngine)

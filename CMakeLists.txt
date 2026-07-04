@@ -23,6 +23,7 @@ juce_generate_juce_header(PPsVaultTracker)
 target_sources(PPsVaultTracker PRIVATE
     src/Main.cpp
     src/engine/HostEngine.cpp
+    src/sequencer/SequencerNode.cpp
     src/ui/MainComponent.cpp)
 
 target_include_directories(PPsVaultTracker PRIVATE src)
