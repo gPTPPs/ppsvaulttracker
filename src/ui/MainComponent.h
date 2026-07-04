@@ -2,8 +2,9 @@
 #include <JuceHeader.h>
 #include "engine/HostEngine.h"
 #include "ui/PatternEditor.h"
+#include "ui/MixerView.h"
 
-// Floating window hosting the plugin's own editor (or a generic one).
+// Floating window hosting a plugin's own editor (or a generic one).
 class PluginWindow : public juce::DocumentWindow
 {
 public:
@@ -12,7 +13,7 @@ public:
           onCloseFn (std::move (onClose))
     {
         setUsingNativeTitleBar (true);
-        if (auto* ed = p.createEditorIfNeeded())
+        if (auto* ed = p.createEditorAndMakeActive())
             setContentOwned (ed, true);
         else
             setContentOwned (new juce::GenericAudioProcessorEditor (p), true);
@@ -31,10 +32,10 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginWindow)
 };
 
-// Main view: toolbar (audio settings / load VST3 / editor / unload),
-// transport bar (play/stop, BPM, speed), pattern view, status line,
+// Main view: toolbar, transport, song/order row, pattern editor, mixer,
 // on-screen MIDI keyboard.
-class MainComponent : public juce::Component
+class MainComponent : public juce::Component,
+                      private juce::Timer
 {
 public:
     MainComponent();
@@ -44,19 +45,17 @@ public:
     void resized() override;
 
 private:
+    void timerCallback() override;
     void showAudioSettings();
-    void chooseAndLoadPlugin();
-    void showEditor();
-    void unload();
-    void refreshStatus();
+    void showEditorFor (juce::AudioPluginInstance*);
     void applyTempo();
+    void applyOrderFromText();
+    void refreshStatus();
 
     HostEngine engine;
 
-    juce::TextButton audioBtn  { "Audio/MIDI..." };
-    juce::TextButton loadBtn   { "Load VST3..." };
-    juce::TextButton editorBtn { "Editor" };
-    juce::TextButton unloadBtn { "Unload" };
+    // toolbar
+    juce::TextButton audioBtn { "Audio/MIDI..." };
 
     // transport + edit controls
     juce::TextButton playBtn { "Play" }, stopBtn { "Stop" };
@@ -65,13 +64,19 @@ private:
     juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" },
                 stepLabel { {}, "Step" }, octaveLabel { {}, "Oct" }, chanLabel { {}, "Ch" };
 
+    // song / order controls
+    juce::TextButton songModeBtn { "Song Mode" }, addPatBtn { "Add Pattern" }, orderApplyBtn { "Set Order" };
+    juce::Slider patSlider;
+    juce::Label patLabel { {}, "Pattern" }, orderLabel { {}, "Order" };
+    juce::TextEditor orderEdit;
+
     juce::Label statusLabel;
     PatternEditor patternEditor { engine };
+    MixerView mixer { engine, [this] (juce::AudioPluginInstance* p) { showEditorFor (p); } };
     juce::MidiKeyboardComponent keyboard { engine.getKeyboardState(),
                                            juce::MidiKeyboardComponent::horizontalKeyboard };
 
     std::unique_ptr<PluginWindow> pluginWindow;
-    std::unique_ptr<juce::FileChooser> chooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

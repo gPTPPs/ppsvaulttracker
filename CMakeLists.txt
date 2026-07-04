@@ -25,6 +25,7 @@ target_sources(PPsVaultTracker PRIVATE
     src/engine/HostEngine.cpp
     src/sequencer/SequencerNode.cpp
     src/ui/MainComponent.cpp
+    src/ui/MixerView.cpp
     src/ui/PatternEditor.cpp)
 
 target_include_directories(PPsVaultTracker PRIVATE src)

@@ -1,24 +1,22 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>
-#include <memory>
-#include "model/Pattern.h"
+#include "model/Song.h"
 #include "sequencer/TrackerClock.h"
 
-// MIDI-only graph node that plays the current pattern in a loop.
+// MIDI-only graph node that plays the song. Pattern MIDI is generated inside
+// the audio callback at exact sample offsets (CLAUDE.md §2); each tracker
+// channel is emitted on MIDI channel index+1 and fanned out to per-channel
+// instruments by MidiRouterNode.
 //
-// Architecture (amendment validated 2026-07-04): pattern MIDI is generated
-// INSIDE the audio callback at exact sample offsets. Transport, tempo and the
-// playhead cross the thread boundary as lock-free atomics — no locks and no
-// allocation on the audio thread.
-//
-// Phase-2 constraint: setPattern() may only be called from the message thread
-// while the engine is not yet running (the demo pattern is installed once at
-// startup). The deferred-update path for live edits arrives with the editor.
+// Two play modes: Pattern (loops the edited pattern) and Song (follows the
+// order list, advancing at each pattern boundary).
 class SequencerNode : public juce::AudioProcessor
 {
 public:
     SequencerNode() : AudioProcessor (BusesProperties()) {}
+
+    void setSong (Song* s) { song = s; }   // once, before audio starts
 
     // ---- transport (any thread) ----
     void play()            { playRequested.store (true); }
@@ -32,11 +30,15 @@ public:
     }
     double getBpm() const { return bpmAtomic.load(); }
     int getSpeed() const  { return speedAtomic.load(); }
-    int getUiRow() const  { return uiRow.load(); }   // -1 when stopped
 
-    void setPattern (std::unique_ptr<Pattern> p) { pattern = std::move (p); }
-    const Pattern* getPattern() const            { return pattern.get(); }
-    Pattern* getMutablePattern()                 { return pattern.get(); }   // direct-write editing (CLAUDE.md §3)
+    void setSongMode (bool s)        { songMode.store (s); }
+    bool isSongMode() const          { return songMode.load(); }
+    void setEditPatternIndex (int i) { editPatternIdx.store (i); }
+    int  getEditPatternIndex() const { return editPatternIdx.load(); }
+
+    int getUiRow() const          { return uiRow.load(); }          // -1 when stopped
+    int getUiPatternIndex() const { return uiPatternIdx.load(); }   // playing pattern
+    int getUiOrderPos() const     { return uiOrderPos.load(); }     // -1 in pattern mode
 
     // ---- AudioProcessor ----
     void prepareToPlay (double sampleRate, int) override { clock.prepare (sampleRate); }
@@ -58,16 +60,29 @@ public:
     void setStateInformation (const void*, int) override {}
 
 private:
+    int clampPatternIndex (int i) const
+    {
+        return juce::jlimit (0, juce::jmax (0, song->getNumPatterns() - 1), i);
+    }
+
     TrackerClock clock;
-    std::unique_ptr<Pattern> pattern;
+    Song* song = nullptr;
 
     std::atomic<bool>   playRequested { false };
+    std::atomic<bool>   songMode { false };
     std::atomic<double> bpmAtomic { 125.0 };
     std::atomic<int>    speedAtomic { 6 };
+    std::atomic<int>    editPatternIdx { 0 };
     std::atomic<int>    uiRow { -1 };
+    std::atomic<int>    uiPatternIdx { 0 };
+    std::atomic<int>    uiOrderPos { -1 };
 
-    bool wasPlaying = false;                       // audio thread only
-    int  activeNotes[Pattern::kMaxChannels] = {};  // audio thread only; 0 = none, else MIDI note + 1
+    // audio thread only
+    bool wasPlaying = false;
+    bool firstRowPending = true;
+    int  curOrderPos = 0;
+    int  curPattern = 0;
+    int  activeNotes[Pattern::kMaxChannels] = {};   // 0 = none, else note + 1
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SequencerNode)
 };

@@ -12,3 +12,8 @@ add_executable(edit_tests EditTests.cpp)
 target_include_directories(edit_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 set_target_properties(edit_tests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 add_test(NAME edit COMMAND edit_tests)
+
+add_executable(mix_tests MixTests.cpp)
+target_include_directories(mix_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+set_target_properties(mix_tests PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+add_test(NAME mix COMMAND mix_tests)

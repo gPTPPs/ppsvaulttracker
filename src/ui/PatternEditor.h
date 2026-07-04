@@ -22,6 +22,9 @@ public:
     int  editStep = 1;           // rows to advance after an entry (0..16)
     int  editOctave = 3;         // low piano row octave (1..7)
 
+    int getCursorChannel() const { return cursorChannel; }
+    std::function<void (int)> onCursorChannelChanged;   // live input follows the cursor
+
     void paint (juce::Graphics&) override;
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool isKeyDown) override;
@@ -33,7 +36,8 @@ private:
     enum SubCol { subNote = 0, subInstrHi, subInstrLo, subVolHi, subVolLo,
                   subFx, subFxValHi, subFxValLo, numSubCols };
 
-    Pattern* pattern() const { return engine.getSequencer().getMutablePattern(); }
+    Pattern* pattern() const { return engine.getEditPattern(); }
+    void notifyChannelChange (int previousChannel);
 
     void timerCallback() override;
     void moveCursor (int rowDelta, int subDelta, bool extendSelection);
@@ -64,7 +68,7 @@ private:
     bool hasSelection = false;
     int anchorRow = 0, anchorChannel = 0;
 
-    struct HeldKey { int keyCode; int midiNote; };
+    struct HeldKey { int keyCode; int midiNote; int midiChannel; };
     juce::Array<HeldKey> heldKeys;
     bool focusGrabbed = false;
 

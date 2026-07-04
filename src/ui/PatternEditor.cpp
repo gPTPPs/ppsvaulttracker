@@ -152,9 +152,15 @@ void PatternEditor::timerCallback()
         grabKeyboardFocus();
     }
 
-    const int playRow = engine.getSequencer().getUiRow();
+    auto& seq = engine.getSequencer();
+    const int playRow = seq.getUiRow();
     if (followPlayhead && playRow >= 0)
     {
+        // FT2 behaviour: in song mode, the edited/displayed pattern follows
+        // the one the order list is currently playing
+        if (seq.isSongMode() && seq.getUiPatternIndex() != seq.getEditPatternIndex())
+            seq.setEditPatternIndex (seq.getUiPatternIndex());
+
         const int visible = juce::jmax (1, (getHeight() - headerH()) / kRowH);
         topRow = juce::jlimit (0, juce::jmax (0, pattern()->getNumRows() - visible),
                                playRow - visible / 2);
@@ -250,10 +256,12 @@ bool PatternEditor::keyPressed (const juce::KeyPress& kp)
     if (code == juce::KeyPress::endKey)      { setCursorRow (p->getNumRows() - 1, shift); return true; }
     if (code == juce::KeyPress::tabKey)
     {
+        const int prev = cursorChannel;
         const int d = shift ? -1 : 1;
         cursorChannel = (cursorChannel + d + p->getNumChannels()) % p->getNumChannels();
         cursorSub = subNote;
         hasSelection = false;
+        notifyChannelChange (prev);
         repaint();
         return true;
     }
@@ -301,10 +309,16 @@ bool PatternEditor::keyStateChanged (bool)
     for (int i = heldKeys.size(); --i >= 0;)
         if (! juce::KeyPress::isKeyCurrentlyDown (heldKeys[i].keyCode))
         {
-            engine.getKeyboardState().noteOff (1, heldKeys[i].midiNote, 0.0f);
+            engine.getKeyboardState().noteOff (heldKeys[i].midiChannel, heldKeys[i].midiNote, 0.0f);
             heldKeys.remove (i);
         }
     return false;
+}
+
+void PatternEditor::notifyChannelChange (int previousChannel)
+{
+    if (cursorChannel != previousChannel && onCursorChannelChanged)
+        onCursorChannelChanged (cursorChannel);
 }
 
 // ---------------------------------------------------------------- mouse
@@ -339,9 +353,11 @@ void PatternEditor::mouseDown (const juce::MouseEvent& e)
         anchorRow = row;
         anchorChannel = ch;
     }
+    const int prev = cursorChannel;
     cursorRow = row;
     cursorChannel = ch;
     cursorSub = sub;
+    notifyChannelChange (prev);
     repaint();
 }
 
@@ -380,11 +396,13 @@ void PatternEditor::moveCursor (int rowDelta, int subDelta, bool extendSelection
 
     if (subDelta != 0)
     {
+        const int prev = cursorChannel;
         int pos = cursorChannel * numSubCols + cursorSub + subDelta;
         const int total = p->getNumChannels() * numSubCols;
         pos = (pos + total) % total;
         cursorChannel = pos / numSubCols;
         cursorSub = pos % numSubCols;
+        notifyChannelChange (prev);
     }
     ensureCursorVisible();
     repaint();
@@ -492,8 +510,9 @@ void PatternEditor::previewNote (int keyCode, int midiNote)
     for (auto& hk : heldKeys)
         if (hk.keyCode == keyCode)
             return;   // key auto-repeat
-    heldKeys.add ({ keyCode, midiNote });
-    engine.getKeyboardState().noteOn (1, midiNote, 0.8f);
+    const int midiCh = cursorChannel + 1;   // preview through this channel's instrument
+    heldKeys.add ({ keyCode, midiNote, midiCh });
+    engine.getKeyboardState().noteOn (midiCh, midiNote, 0.8f);
 }
 
 PatternOps::Selection PatternEditor::currentRegion() const
