@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "ui/MainComponent.h"
+#include "ui/RVLookAndFeel.h"
 
 class PPsVaultTrackerApplication : public juce::JUCEApplication
 {
@@ -10,10 +11,17 @@ public:
 
     void initialise (const juce::String&) override
     {
+        lookAndFeel = std::make_unique<RVLookAndFeel>();
+        juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
     }
 
-    void shutdown() override { mainWindow = nullptr; }
+    void shutdown() override
+    {
+        mainWindow = nullptr;
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        lookAndFeel = nullptr;
+    }
 
     class MainWindow : public juce::DocumentWindow
     {
@@ -45,6 +53,7 @@ public:
     };
 
 private:
+    std::unique_ptr<RVLookAndFeel> lookAndFeel;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

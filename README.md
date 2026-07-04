@@ -10,11 +10,15 @@ arrangement and mastering.
 Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
 (fetched at configure time, pinned). License: **AGPLv3**.
 
-> 🚧 **Status: phase 1 — skeleton.** Audio device + VST3 hosting by explicit
-> file path + on-screen/hardware MIDI keyboard. Proof that sound comes out.
-> The pattern editor, sequencer, .ubt format, imports/exports and the
-> synthwave UI arrive in later phases (see [CLAUDE.md](CLAUDE.md) for the
-> full roadmap and architecture).
+![PPsVaultTracker](docs/screenshot.png)
+
+> 🚧 **Status: phase 6 (polish) in progress.** Working today: FT2-style
+> pattern editor (AZERTY/QWERTY), sample-accurate sequencer, up to 16 tracks
+> with one VST3 instrument each, mixer (faders/mute/solo/VU/insert FX +
+> master bus), song mode with order list, .ubt projects with autosave,
+> MIDI/stems WAV/MP3/tracklist export, level-1 module import (MOD/XM/S3M/IT)
+> and the RetroVault synthwave theme. See [CLAUDE.md](CLAUDE.md) for the
+> full roadmap and architecture.
 
 ## Building
 

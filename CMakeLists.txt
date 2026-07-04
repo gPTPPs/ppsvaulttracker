@@ -18,6 +18,11 @@ juce_add_gui_app(PPsVaultTracker
     COMPANY_NAME "TheUNBoRN"
     VERSION      ${PROJECT_VERSION})
 
+# embedded assets: Orbitron font (SIL OFL 1.1, see THIRD_PARTY_LICENSES.md)
+juce_add_binary_data(Assets SOURCES
+    assets/OrbitronMedium.otf
+    assets/OrbitronBold.otf)
+
 juce_generate_juce_header(PPsVaultTracker)
 
 target_sources(PPsVaultTracker PRIVATE
@@ -41,6 +46,7 @@ target_compile_definitions(PPsVaultTracker PRIVATE
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:PPsVaultTracker,JUCE_VERSION>")
 
 target_link_libraries(PPsVaultTracker PRIVATE
+    Assets
     juce::juce_audio_utils
     PUBLIC
     juce::juce_recommended_config_flags

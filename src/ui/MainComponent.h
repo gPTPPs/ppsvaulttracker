@@ -100,6 +100,7 @@ private:
     juce::Label statusLabel;
     PatternEditor patternEditor { engine };
     MixerView mixer { engine, [this] (juce::AudioPluginInstance* p) { showEditorFor (p); } };
+    juce::Viewport mixerViewport;   // 17 strips don't fit: horizontal scroll
     juce::MidiKeyboardComponent keyboard { engine.getKeyboardState(),
                                            juce::MidiKeyboardComponent::horizontalKeyboard };
 

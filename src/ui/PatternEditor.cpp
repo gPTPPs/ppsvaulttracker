@@ -1,4 +1,5 @@
 #include "ui/PatternEditor.h"
+#include "ui/RVLookAndFeel.h"
 
 namespace
 {
@@ -42,9 +43,27 @@ PatternEditor::PatternEditor (HostEngine& e) : engine (e)
 
 // ---------------------------------------------------------------- painting
 
+int PatternEditor::visibleChannelCount() const
+{
+    return juce::jmax (1, (getWidth() - kRowNumW) / (kChanW + kChanGap));
+}
+
+void PatternEditor::setFirstChannel (int fc)
+{
+    if (auto* p = pattern())
+        fc = juce::jlimit (0, juce::jmax (0, p->getNumChannels() - visibleChannelCount()), fc);
+    if (fc != firstChannel)
+    {
+        firstChannel = fc;
+        if (onViewChanged)
+            onViewChanged();
+        repaint();
+    }
+}
+
 void PatternEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff16181c));
+    g.fillAll (RV::gridBg);
 
     auto* p = pattern();
     if (p == nullptr)
@@ -52,15 +71,30 @@ void PatternEditor::paint (juce::Graphics& g)
 
     const int playRow = engine.getSequencer().getUiRow();
     const int visible = juce::jmax (1, (getHeight() - headerH()) / kRowH);
+    const int visCh   = visibleChannelCount();
+    const int lastCh  = juce::jmin (p->getNumChannels(), firstChannel + visCh);
     const juce::Font mono (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 15.0f, juce::Font::plain));
 
     // ---- channel headers ----
     g.setFont (mono.withHeight (13.0f));
-    g.setColour (juce::Colour (0xff9aa4b2));
-    for (int ch = 0; ch < p->getNumChannels(); ++ch)
-        g.drawText ("CH " + hex2 (ch + 1), kRowNumW + ch * (kChanW + kChanGap), 0, kChanW, headerH(),
+    for (int ch = firstChannel; ch < lastCh; ++ch)
+    {
+        g.setColour (ch == cursorChannel ? RV::cyan : RV::textDim);
+        g.drawText ("CH " + hex2 (ch + 1),
+                    kRowNumW + (ch - firstChannel) * (kChanW + kChanGap), 0, kChanW, headerH(),
                     juce::Justification::centredLeft);
-    g.setColour (juce::Colour (0xff2a2f37));
+    }
+    if (firstChannel > 0)
+    {
+        g.setColour (RV::cyan);
+        g.drawText ("<", 2, 0, 16, headerH(), juce::Justification::centred);
+    }
+    if (lastCh < p->getNumChannels())
+    {
+        g.setColour (RV::cyan);
+        g.drawText (">", getWidth() - 16, 0, 14, headerH(), juce::Justification::centred);
+    }
+    g.setColour (RV::panelLine);
     g.fillRect (0, headerH() - 2, getWidth(), 1);
 
     g.setFont (mono);
@@ -80,22 +114,22 @@ void PatternEditor::paint (juce::Graphics& g)
 
         if (isPlayhead)
         {
-            g.setColour (juce::Colour (0xff2d3644));
+            g.setColour (RV::magenta.withAlpha (0.16f));
             g.fillRect (0, y, getWidth(), kRowH);
         }
         else if (row % 16 == 0)
         {
-            g.setColour (juce::Colour (0xff1c2026));
+            g.setColour (RV::gridBar);
             g.fillRect (0, y, getWidth(), kRowH);
         }
 
         // row number
-        g.setColour (row % 4 == 0 ? juce::Colour (0xff9aa4b2) : juce::Colour (0xff5f6976));
+        g.setColour (row % 4 == 0 ? RV::cyan.withAlpha (0.75f) : RV::textDim);
         g.drawText (hex2 (row), 8, y, kRowNumW - 10, kRowH, juce::Justification::centredLeft);
 
-        for (int ch = 0; ch < p->getNumChannels(); ++ch)
+        for (int ch = firstChannel; ch < lastCh; ++ch)
         {
-            const int x0 = kRowNumW + ch * (kChanW + kChanGap);
+            const int x0 = kRowNumW + (ch - firstChannel) * (kChanW + kChanGap);
             const auto& c = p->at (row, ch);
 
             // selection overlay
@@ -103,15 +137,17 @@ void PatternEditor::paint (juce::Graphics& g)
                 && row >= sel.startRow && row <= sel.endRow
                 && ch >= sel.startChannel && ch <= sel.endChannel)
             {
-                g.setColour (juce::Colour (0x303b82f6));
+                g.setColour (RV::cyan.withAlpha (0.18f));
                 g.fillRect (x0 - 2, y, kChanW + 4, kRowH);
             }
 
             // cursor
             if (row == cursorRow && ch == cursorChannel)
             {
-                g.setColour (juce::Colour (0xff3b4252));
+                g.setColour (juce::Colour (0xff0d4356));
                 g.fillRect (x0 + kSubX[cursorSub] - 2, y, kSubW[cursorSub] + 4, kRowH);
+                g.setColour (RV::cyan);
+                g.drawRect (x0 + kSubX[cursorSub] - 2, y, kSubW[cursorSub] + 4, kRowH, 1);
             }
 
             juce::String noteTxt = "---";
@@ -119,10 +155,10 @@ void PatternEditor::paint (juce::Graphics& g)
             else if (c.hasNote())  noteTxt = noteName (c.note);
 
             const bool empty = ! c.hasNote() && ! c.isNoteOff();
-            const auto dim    = juce::Colour (0xff4a525e);
-            const auto normal = juce::Colour (0xffd8dee6);
+            const auto dim    = RV::gridEmpty;
+            const auto normal = RV::text;
 
-            g.setColour (isPlayhead ? juce::Colour (0xffb07cf0) : (empty ? dim : normal));
+            g.setColour (isPlayhead ? RV::magenta : (empty ? dim : normal));
             g.drawText (noteTxt, x0 + kSubX[subNote], y, kSubW[subNote], kRowH, juce::Justification::centredLeft);
 
             g.setColour (c.instrument != 0 ? normal : dim);
@@ -261,12 +297,24 @@ bool PatternEditor::keyPressed (const juce::KeyPress& kp)
         cursorChannel = (cursorChannel + d + p->getNumChannels()) % p->getNumChannels();
         cursorSub = subNote;
         hasSelection = false;
+        ensureCursorVisible();
         notifyChannelChange (prev);
         repaint();
         return true;
     }
     if (code == juce::KeyPress::escapeKey)   { hasSelection = false; repaint(); return true; }
     if (code == juce::KeyPress::deleteKey)   { deleteAtCursor(); return true; }
+
+    // space = play/stop (the sequencer follows the current Song/Pattern mode)
+    if (code == juce::KeyPress::spaceKey)
+    {
+        auto& seq = engine.getSequencer();
+        if (seq.isPlaying())
+            seq.stop();
+        else
+            seq.play();
+        return true;
+    }
 
     // ---- data entry ----
     const auto ch = (juce::juce_wchar) juce::CharacterFunctions::toLowerCase ((juce::juce_wchar) kp.getTextCharacter());
@@ -335,8 +383,9 @@ void PatternEditor::mouseDown (const juce::MouseEvent& e)
         return;
 
     int chAndX = e.x - kRowNumW;
-    const int ch = juce::jlimit (0, p->getNumChannels() - 1, chAndX / (kChanW + kChanGap));
-    const int xInChan = chAndX - ch * (kChanW + kChanGap);
+    const int ch = juce::jlimit (0, p->getNumChannels() - 1,
+                                 firstChannel + chAndX / (kChanW + kChanGap));
+    const int xInChan = chAndX - (ch - firstChannel) * (kChanW + kChanGap);
 
     int sub = subNote;
     for (int s = 0; s < numSubCols; ++s)
@@ -361,11 +410,21 @@ void PatternEditor::mouseDown (const juce::MouseEvent& e)
     repaint();
 }
 
-void PatternEditor::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+void PatternEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
     auto* p = pattern();
     if (p == nullptr)
         return;
+
+    // Shift+wheel (or a horizontal wheel) scrolls channels
+    const float dx = wheel.deltaX != 0.0f ? wheel.deltaX
+                   : (e.mods.isShiftDown() ? wheel.deltaY : 0.0f);
+    if (dx != 0.0f)
+    {
+        setFirstChannel (firstChannel - (dx > 0 ? 1 : -1));
+        return;
+    }
+
     const int visible = juce::jmax (1, (getHeight() - headerH()) / kRowH);
     topRow = juce::jlimit (0, juce::jmax (0, p->getNumRows() - visible),
                            topRow - (int) (wheel.deltaY * 6.0f));
@@ -431,6 +490,15 @@ void PatternEditor::ensureCursorVisible()
         topRow = cursorRow;
     else if (cursorRow >= topRow + visible)
         topRow = cursorRow - visible + 1;
+
+    // horizontal: keep the cursor channel on screen
+    const int visCh = visibleChannelCount();
+    int fc = firstChannel;
+    if (cursorChannel < fc)
+        fc = cursorChannel;
+    else if (cursorChannel >= fc + visCh)
+        fc = cursorChannel - visCh + 1;
+    setFirstChannel (fc);
 }
 
 void PatternEditor::advanceAfterEntry()

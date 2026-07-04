@@ -20,7 +20,7 @@ class HostEngine : private juce::MidiKeyboardState::Listener,
                    private juce::MidiInputCallback
 {
 public:
-    static constexpr int kMixChannels = 8;
+    static constexpr int kMixChannels = 16;   // hard ceiling: 1 track = 1 MIDI channel
     static constexpr int kMaxInserts  = 2;
     static constexpr int kMaxStateBytes = 32 * 1024 * 1024;   // plugin state cap on load
     static constexpr int kMaxBackups  = 10;

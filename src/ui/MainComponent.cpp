@@ -69,7 +69,7 @@ MainComponent::MainComponent()
     setupIncDec (speedSlider,  1.0,  31.0,   6.0, [this] (double)   { applyTempo(); });
     setupIncDec (stepSlider,   0.0,  16.0,   1.0, [this] (double v) { patternEditor.editStep = (int) v; });
     setupIncDec (octaveSlider, 1.0,   7.0,   3.0, [this] (double v) { patternEditor.editOctave = (int) v; });
-    setupIncDec (chanSlider,   1.0,   8.0,   1.0, [this] (double v) { engine.setNumChannels ((int) v); });
+    setupIncDec (chanSlider,   1.0,  16.0,   1.0, [this] (double v) { engine.setNumChannels ((int) v); });
     setupIncDec (patSlider,    0.0,   1.0,   0.0, [this] (double v)
     {
         // the range can exceed the real pattern count (JUCE sliders need
@@ -111,7 +111,16 @@ MainComponent::MainComponent()
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
     addAndMakeVisible (patternEditor);
-    addAndMakeVisible (mixer);
+    // the mixer follows the grid, and keeps its own scrollbar so the MASTER
+    // strip (one column past the last channel) stays reachable
+    mixerViewport.setViewedComponent (&mixer, false);
+    mixerViewport.setScrollBarsShown (false, true);
+    mixerViewport.setScrollBarThickness (10);
+    addAndMakeVisible (mixerViewport);
+    patternEditor.onViewChanged = [this]
+    {
+        mixerViewport.setViewPosition (patternEditor.getFirstChannel() * GridMetrics::kStride, 0);
+    };
     addAndMakeVisible (keyboard);
     keyboard.setKeyPressBaseOctave (4);
 
@@ -544,11 +553,11 @@ void MainComponent::resized()
     place (transport, bpmSlider, 96, 10);
     place (transport, speedLabel, 48, 2);
     place (transport, speedSlider, 96, 10);
-    place (transport, stepLabel, 38, 2);
+    place (transport, stepLabel, 46, 2);
     place (transport, stepSlider, 96, 10);
-    place (transport, octaveLabel, 30, 2);
+    place (transport, octaveLabel, 46, 2);
     place (transport, octaveSlider, 96, 10);
-    place (transport, chanLabel, 24, 2);
+    place (transport, chanLabel, 40, 2);
     place (transport, chanSlider, 96);
 
     area.removeFromTop (6);
@@ -567,7 +576,8 @@ void MainComponent::resized()
 
     keyboard.setBounds (area.removeFromBottom (90));
     area.removeFromBottom (6);
-    mixer.setBounds (area.removeFromBottom (190));
+    mixerViewport.setBounds (area.removeFromBottom (200));
+    mixer.setSize (mixer.currentIdealWidth(), mixerViewport.getHeight());
     area.removeFromBottom (6);
     patternEditor.setBounds (area);
 }

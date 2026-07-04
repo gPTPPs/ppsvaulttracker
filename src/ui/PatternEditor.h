@@ -3,6 +3,7 @@
 #include "engine/HostEngine.h"
 #include "model/PatternOps.h"
 #include "model/PatternUndo.h"
+#include "ui/GridMetrics.h"
 
 // FT2-style pattern editor (phase 3): cursor with sub-columns
 // (note | instrument | volume | effect | effect value), piano-key note entry
@@ -23,7 +24,9 @@ public:
     int  editOctave = 3;         // low piano row octave (1..7)
 
     int getCursorChannel() const { return cursorChannel; }
+    int getFirstChannel() const  { return firstChannel; }
     std::function<void (int)> onCursorChannelChanged;   // live input follows the cursor
+    std::function<void()> onViewChanged;                // mixer scroll follows the grid
 
     void paint (juce::Graphics&) override;
     bool keyPressed (const juce::KeyPress&) override;
@@ -52,19 +55,25 @@ private:
     PatternOps::Selection currentRegion() const;   // selection if active, else cursor cell
     int  noteForChar (juce::juce_wchar c) const;   // -1 if not a note key
 
-    // geometry
-    static constexpr int kRowH = 18, kRowNumW = 42, kChanGap = 10;
+    // geometry (horizontal metrics shared with the mixer)
+    static constexpr int kRowH = 18;
+    static constexpr int kRowNumW = GridMetrics::kRowNumW;
+    static constexpr int kChanGap = GridMetrics::kChanGap;
+    static constexpr int kChanW   = GridMetrics::kChanW;
     static constexpr int kSubX[numSubCols]     = { 0, 48, 58, 74, 84, 100, 110, 120 };
     static constexpr int kSubW[numSubCols]     = { 44, 10, 10, 10, 10, 10, 10, 10 };
-    static constexpr int kChanW = 134;
     int headerH() const { return 22; }
+    void setFirstChannel (int fc);
 
     HostEngine& engine;
     PatternUndo undo;
     PatternOps::Clipboard clipboard;
 
+    int visibleChannelCount() const;
+
     int cursorRow = 0, cursorChannel = 0, cursorSub = subNote;
     int topRow = 0;
+    int firstChannel = 0;   // leftmost visible channel (horizontal scroll)
     bool hasSelection = false;
     int anchorRow = 0, anchorChannel = 0;
 

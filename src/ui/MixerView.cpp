@@ -1,4 +1,5 @@
 #include "ui/MixerView.h"
+#include "ui/RVLookAndFeel.h"
 
 MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstance*)> showEditorFn)
     : engine (e), showEditor (std::move (showEditorFn))
@@ -14,39 +15,31 @@ MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstan
         s.title.setText (isMaster ? "MASTER" : "CH " + juce::String (i + 1), juce::dontSendNotification);
         s.title.setJustificationType (juce::Justification::centred);
         s.title.setFont (juce::Font (juce::FontOptions (12.0f)).boldened());
-        s.title.setColour (juce::Label::textColourId,
-                           isMaster ? juce::Colour (0xffb07cf0) : juce::Colour (0xff9aa4b2));
+        s.title.setColour (juce::Label::textColourId, isMaster ? RV::magenta : RV::textDim);
         addAndMakeVisible (s.title);
 
         if (! isMaster)
         {
             s.instBtn.setWantsKeyboardFocus (false);
-            s.instBtn.onClick = [this, ch]
+            s.instBtn.onClick = [this, ch, &s]
             {
-                if (juce::ModifierKeys::getCurrentModifiers().isCtrlDown())
-                {
-                    engine.unloadInstrument (ch);
-                    refreshLabels();
-                }
-                else if (auto* inst = engine.getInstrument (ch))
-                {
-                    showEditor (inst);
-                }
+                if (auto* inst = engine.getInstrument (ch))
+                    showPluginMenu (inst,
+                                    [this, ch] { engine.unloadInstrument (ch); refreshLabels(); },
+                                    &s.instBtn);
                 else
-                {
                     loadInstrumentFor (ch);
-                }
             };
             addAndMakeVisible (s.instBtn);
 
             s.muteBtn.setClickingTogglesState (true);
-            s.muteBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffb03060));
+            s.muteBtn.setColour (juce::TextButton::buttonOnColourId, RV::magenta.withAlpha (0.85f));
             s.muteBtn.setWantsKeyboardFocus (false);
             s.muteBtn.onClick = [this, ch, &s] { engine.setChannelMute (ch, s.muteBtn.getToggleState()); };
             addAndMakeVisible (s.muteBtn);
 
             s.soloBtn.setClickingTogglesState (true);
-            s.soloBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff2f8f5b));
+            s.soloBtn.setColour (juce::TextButton::buttonOnColourId, RV::cyan.withAlpha (0.55f));
             s.soloBtn.setWantsKeyboardFocus (false);
             s.soloBtn.onClick = [this, ch, &s] { engine.setChannelSolo (ch, s.soloBtn.getToggleState()); };
             addAndMakeVisible (s.soloBtn);
@@ -57,24 +50,14 @@ MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstan
             auto& b = s.fxBtn[f];
             b.setWantsKeyboardFocus (false);
             const int target = isMaster ? -1 : ch;
-            b.onClick = [this, target, f]
+            b.onClick = [this, target, f, &b]
             {
-                if (engine.getInsert (target, f) != nullptr)
-                {
-                    if (juce::ModifierKeys::getCurrentModifiers().isCtrlDown())
-                    {
-                        engine.removeInsert (target, f);
-                        refreshLabels();
-                    }
-                    else
-                    {
-                        showEditor (engine.getInsert (target, f));
-                    }
-                }
+                if (auto* fx = engine.getInsert (target, f))
+                    showPluginMenu (fx,
+                                    [this, target, f] { engine.removeInsert (target, f); refreshLabels(); },
+                                    &b);
                 else
-                {
                     addInsertFor (target);
-                }
             };
             addAndMakeVisible (b);
         }
@@ -99,15 +82,41 @@ MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstan
 
 juce::Rectangle<int> MixerView::stripArea (int index) const
 {
-    const int w = getWidth() / kNumStrips;
-    return { index * w, 0, w, getHeight() };
+    // channels sit exactly under their grid column; master right after the
+    // last active channel
+    const int slot = index == kMaster ? activeChannels() : index;
+    return { GridMetrics::kRowNumW + slot * kStripW, 0, kStripW, getHeight() };
+}
+
+void MixerView::showPluginMenu (juce::AudioPluginInstance* instance,
+                                std::function<void()> removeFn, juce::Component* target)
+{
+    juce::PopupMenu m;
+    m.addItem (1, "Open editor");
+    m.addItem (2, "Remove " + instance->getName());
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+        [this, instance, removeFn] (int r)
+        {
+            if (r == 1)      showEditor (instance);
+            else if (r == 2) removeFn();
+        });
 }
 
 void MixerView::resized()
 {
+    const int active = activeChannels();
     for (int i = 0; i < kNumStrips; ++i)
     {
         auto& s = strips[i];
+        const bool shown = i == kMaster || i < active;
+        for (auto* c : { (juce::Component*) &s.title, (juce::Component*) &s.instBtn,
+                         (juce::Component*) &s.muteBtn, (juce::Component*) &s.soloBtn,
+                         (juce::Component*) &s.gain,
+                         (juce::Component*) &s.fxBtn[0], (juce::Component*) &s.fxBtn[1] })
+            c->setVisible (shown);
+        if (! shown)
+            continue;
+
         auto r = stripArea (i).reduced (4);
 
         s.title.setBounds (r.removeFromTop (18));
@@ -139,12 +148,15 @@ void MixerView::resized()
 
 void MixerView::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff14161a));
+    g.fillAll (RV::bg);
 
+    const int active = activeChannels();
     for (int i = 0; i < kNumStrips; ++i)
     {
+        if (i != kMaster && i >= active)
+            continue;
         const auto area = stripArea (i);
-        g.setColour (juce::Colour (0xff23272e));
+        g.setColour (RV::panelLine);
         g.drawRect (area);
 
         // VU: right half of the fader zone
@@ -152,20 +164,33 @@ void MixerView::paint (juce::Graphics& g)
         r.removeFromTop (18 + 22 + 2 + (20 + 2) * HostEngine::kMaxInserts + 22 + 2);
         auto vuArea = r.removeFromRight (r.getWidth() / 2).reduced (8, 4);
 
-        g.setColour (juce::Colour (0xff1c2026));
+        g.setColour (RV::gridBar);
         g.fillRect (vuArea);
 
         const float level = juce::jlimit (0.0f, 1.0f, vu[i]);
         const int h = (int) (level * (float) vuArea.getHeight());
         auto bar = vuArea.removeFromBottom (h);
-        g.setColour (level > 0.9f ? juce::Colour (0xffd04a4a)
-                                  : (i == kMaster ? juce::Colour (0xffb07cf0) : juce::Colour (0xff2f8f5b)));
+        if (level > 0.9f)
+            g.setColour (juce::Colour (0xffff3b3b));
+        else
+            g.setGradientFill (juce::ColourGradient (i == kMaster ? RV::magenta : RV::cyan,
+                                                     (float) bar.getX(), (float) vuArea.getY(),
+                                                     RV::cyan.withAlpha (0.35f),
+                                                     (float) bar.getX(), (float) vuArea.getBottom(), false));
         g.fillRect (bar);
     }
 }
 
 void MixerView::timerCallback()
 {
+    // follow channel-count changes (strip layout + content width)
+    if (activeChannels() != lastActive)
+    {
+        lastActive = activeChannels();
+        setSize (currentIdealWidth(), getHeight());
+        resized();
+    }
+
     for (int i = 0; i < kNumStrips; ++i)
     {
         const float peak = i == kMaster ? engine.readMasterPeak() : engine.readChannelPeak (i);
