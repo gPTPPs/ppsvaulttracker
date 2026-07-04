@@ -33,7 +33,11 @@ public:
 
         void closeButtonPressed() override
         {
-            juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            // route through the unsaved-changes guard
+            if (auto* mc = dynamic_cast<MainComponent*> (getContentComponent()))
+                mc->confirmAndQuit();
+            else
+                juce::JUCEApplication::getInstance()->systemRequestedQuit();
         }
 
     private:

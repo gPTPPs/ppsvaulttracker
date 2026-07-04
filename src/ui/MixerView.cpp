@@ -174,6 +174,25 @@ void MixerView::timerCallback()
     repaint();
 }
 
+void MixerView::syncFromEngine()
+{
+    for (int i = 0; i < kNumStrips; ++i)
+    {
+        auto& s = strips[i];
+        if (i == kMaster)
+        {
+            s.gain.setValue ((double) engine.getMasterGain(), juce::dontSendNotification);
+        }
+        else
+        {
+            s.gain.setValue ((double) engine.getChannelGain (i), juce::dontSendNotification);
+            s.muteBtn.setToggleState (engine.getChannelMute (i), juce::dontSendNotification);
+            s.soloBtn.setToggleState (engine.getChannelSolo (i), juce::dontSendNotification);
+        }
+    }
+    refreshLabels();
+}
+
 void MixerView::refreshLabels()
 {
     for (int i = 0; i < kNumStrips; ++i)

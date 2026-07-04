@@ -44,6 +44,9 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // close-button path: prompts when there are unsaved changes
+    void confirmAndQuit();
+
 private:
     void timerCallback() override;
     void showAudioSettings();
@@ -51,11 +54,25 @@ private:
     void applyTempo();
     void applyOrderFromText();
     void refreshStatus();
+    void newProject();
+    void openProject();
+    void saveProject();
+    void saveProjectAs();
+    void syncFromEngine();   // UI <- engine after project load/new
+    void updateTitle();
 
     HostEngine engine;
 
     // toolbar
     juce::TextButton audioBtn { "Audio/MIDI..." };
+    juce::TextButton newBtn { "New" }, openBtn { "Open..." },
+                     saveBtn { "Save" }, saveAsBtn { "Save As..." };
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::uint32 lastAutosaveMs = 0;
+    juce::String savedStateJson;   // last saved/loaded state, for the dirty check
+    bool quitAfterSave = false;
+    bool hasUnsavedChanges() { return engine.getStateAsJson() != savedStateJson; }
+    void markStateSaved()    { savedStateJson = engine.getStateAsJson(); }
 
     // transport + edit controls
     juce::TextButton playBtn { "Play" }, stopBtn { "Stop" };

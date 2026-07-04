@@ -1,5 +1,6 @@
 #include "engine/HostEngine.h"
 #include "model/DemoPattern.h"
+#include "io/ProjectIO.h"
 
 HostEngine::HostEngine()
 {
@@ -111,7 +112,8 @@ void HostEngine::rebuildConnections()
 }
 
 std::unique_ptr<juce::AudioPluginInstance> HostEngine::createInstance (const juce::File& file,
-                                                                       juce::String& error)
+                                                                       juce::String& error,
+                                                                       juce::PluginDescription* usedDesc)
 {
     juce::OwnedArray<juce::PluginDescription> descs;
     for (auto* format : formatManager.getFormats())
@@ -131,13 +133,18 @@ std::unique_ptr<juce::AudioPluginInstance> HostEngine::createInstance (const juc
     auto instance = formatManager.createPluginInstance (*descs[0], sampleRate, blockSize, error);
     if (instance == nullptr && error.isEmpty())
         error = "Plugin instantiation failed";
+    if (instance != nullptr && usedDesc != nullptr)
+        *usedDesc = *descs[0];
     return instance;
 }
 
 juce::String HostEngine::loadInstrument (int ch, const juce::File& file)
 {
+    autosaveBackup();   // CLAUDE.md: always autosave before instantiating a plugin
+
+    juce::PluginDescription desc;
     juce::String error;
-    auto instance = createInstance (file, error);
+    auto instance = createInstance (file, error, &desc);
     if (instance == nullptr)
         return error;
 
@@ -146,6 +153,7 @@ juce::String HostEngine::loadInstrument (int ch, const juce::File& file)
     if (s.instrument != nullptr)
         graph.removeNode (s.instrument->nodeID);
     s.instrumentName = instance->getName();
+    s.instrumentDesc = desc;
     s.instrument = graph.addNode (std::move (instance));
     rebuildConnections();
     return {};
@@ -160,13 +168,17 @@ void HostEngine::unloadInstrument (int ch)
     graph.removeNode (s.instrument->nodeID);
     s.instrument = nullptr;
     s.instrumentName.clear();
+    s.instrumentDesc = {};
     rebuildConnections();
 }
 
 juce::String HostEngine::addInsert (int chOrMaster, const juce::File& file)
 {
+    autosaveBackup();
+
     auto* nodes = chOrMaster < 0 ? masterInserts : slots[chOrMaster].inserts;
     auto* names = chOrMaster < 0 ? masterInsertNames : slots[chOrMaster].insertNames;
+    auto* descs = chOrMaster < 0 ? masterInsertDescs : slots[chOrMaster].insertDescs;
 
     int slot = -1;
     for (int i = 0; i < kMaxInserts; ++i)
@@ -174,13 +186,15 @@ juce::String HostEngine::addInsert (int chOrMaster, const juce::File& file)
     if (slot < 0)
         return "All insert slots are full";
 
+    juce::PluginDescription desc;
     juce::String error;
-    auto instance = createInstance (file, error);
+    auto instance = createInstance (file, error, &desc);
     if (instance == nullptr)
         return error;
 
     ScopedDetach detach (*this);
     names[slot] = instance->getName();
+    descs[slot] = desc;
     nodes[slot] = graph.addNode (std::move (instance));
     rebuildConnections();
     return {};
@@ -190,6 +204,7 @@ void HostEngine::removeInsert (int chOrMaster, int index)
 {
     auto* nodes = chOrMaster < 0 ? masterInserts : slots[chOrMaster].inserts;
     auto* names = chOrMaster < 0 ? masterInsertNames : slots[chOrMaster].insertNames;
+    auto* descs = chOrMaster < 0 ? masterInsertDescs : slots[chOrMaster].insertDescs;
     if (index < 0 || index >= kMaxInserts || nodes[index] == nullptr)
         return;
 
@@ -199,9 +214,11 @@ void HostEngine::removeInsert (int chOrMaster, int index)
     {
         nodes[i] = nodes[i + 1];
         names[i] = names[i + 1];
+        descs[i] = descs[i + 1];
     }
     nodes[kMaxInserts - 1] = nullptr;
     names[kMaxInserts - 1].clear();
+    descs[kMaxInserts - 1] = {};
     rebuildConnections();
 }
 
@@ -222,6 +239,302 @@ void HostEngine::applyOrder (const int* entries, int count)
 void HostEngine::setNumChannels (int n)
 {
     song.setNumChannels (juce::jlimit (1, kMixChannels, n));
+}
+
+// ---------------------------------------------------------------- project I/O
+
+void HostEngine::unloadAllPluginsDetached()
+{
+    for (int ch = 0; ch < kMixChannels; ++ch)
+    {
+        auto& s = slots[ch];
+        if (s.instrument != nullptr)
+            graph.removeNode (s.instrument->nodeID);
+        s.instrument = nullptr;
+        s.instrumentName.clear();
+        s.instrumentDesc = {};
+        for (int i = 0; i < kMaxInserts; ++i)
+        {
+            if (s.inserts[i] != nullptr)
+                graph.removeNode (s.inserts[i]->nodeID);
+            s.inserts[i] = nullptr;
+            s.insertNames[i].clear();
+            s.insertDescs[i] = {};
+        }
+        strips[ch]->setGain (1.0f);
+        mutes[ch] = solos[ch] = false;
+    }
+    for (int i = 0; i < kMaxInserts; ++i)
+    {
+        if (masterInserts[i] != nullptr)
+            graph.removeNode (masterInserts[i]->nodeID);
+        masterInserts[i] = nullptr;
+        masterInsertNames[i].clear();
+        masterInsertDescs[i] = {};
+    }
+    masterStrip->setGain (1.0f);
+    updateMuteStates();
+}
+
+juce::var HostEngine::buildProjectVar (bool writeStates)
+{
+    auto pluginsDir = projectDir.getChildFile ("plugins");
+    if (writeStates)
+        pluginsDir.createDirectory();
+
+    auto pluginRef = [&] (const juce::PluginDescription& desc, Node::Ptr node,
+                          const juce::String& stateFileName) -> juce::var
+    {
+        if (node == nullptr)
+            return {};
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("path", desc.fileOrIdentifier);
+        o->setProperty ("name", desc.name);
+        o->setProperty ("uid",  desc.createIdentifierString());
+        o->setProperty ("state", stateFileName);
+        if (writeStates)
+            if (auto* inst = dynamic_cast<juce::AudioPluginInstance*> (node->getProcessor()))
+            {
+                juce::MemoryBlock mb;
+                inst->getStateInformation (mb);
+                pluginsDir.getChildFile (stateFileName).replaceWithData (mb.getData(), mb.getSize());
+            }
+        return juce::var (o);
+    };
+
+    auto* root = new juce::DynamicObject();
+    root->setProperty ("format", ProjectIO::kFormatTag);
+    root->setProperty ("bpm",   sequencer->getBpm());
+    root->setProperty ("speed", sequencer->getSpeed());
+    root->setProperty ("song",  ProjectIO::songToVar (song));
+
+    juce::Array<juce::var> channels;
+    for (int ch = 0; ch < kMixChannels; ++ch)
+    {
+        auto& s = slots[ch];
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("gain", strips[ch]->getGain());
+        o->setProperty ("mute", mutes[ch]);
+        o->setProperty ("solo", solos[ch]);
+        o->setProperty ("instrument",
+                        pluginRef (s.instrumentDesc, s.instrument,
+                                   "ch" + juce::String (ch) + "-inst.state"));
+        juce::Array<juce::var> ins;
+        for (int i = 0; i < kMaxInserts; ++i)
+            ins.add (pluginRef (s.insertDescs[i], s.inserts[i],
+                                "ch" + juce::String (ch) + "-fx" + juce::String (i) + ".state"));
+        o->setProperty ("inserts", juce::var (ins));
+        channels.add (juce::var (o));
+    }
+    root->setProperty ("channels", juce::var (channels));
+
+    auto* m = new juce::DynamicObject();
+    m->setProperty ("gain", masterStrip->getGain());
+    juce::Array<juce::var> mins;
+    for (int i = 0; i < kMaxInserts; ++i)
+        mins.add (pluginRef (masterInsertDescs[i], masterInserts[i],
+                             "master-fx" + juce::String (i) + ".state"));
+    m->setProperty ("inserts", juce::var (mins));
+    root->setProperty ("master", juce::var (m));
+
+    return juce::var (root);
+}
+
+juce::String HostEngine::saveProject (const juce::File& ubtDir)
+{
+    if (! ubtDir.createDirectory().wasOk() && ! ubtDir.isDirectory())
+        return "Cannot create project folder";
+    ubtDir.getChildFile ("backups").createDirectory();
+    projectDir = ubtDir;
+
+    const auto root = buildProjectVar (true);
+    if (! ubtDir.getChildFile ("song.json").replaceWithText (juce::JSON::toString (root)))
+        return "Cannot write song.json";
+    return {};
+}
+
+juce::String HostEngine::restorePlugins (const juce::var& root, juce::StringArray& warnings)
+{
+    auto pluginsDir = projectDir.getChildFile ("plugins");
+
+    auto loadRef = [&] (const juce::var& ref, const juce::String& what)
+        -> std::pair<std::unique_ptr<juce::AudioPluginInstance>, juce::PluginDescription>
+    {
+        if (! ref.isObject())
+            return {};
+
+        const juce::String path = ref.getProperty ("path", juce::String()).toString();
+        const juce::String uid  = ref.getProperty ("uid",  juce::String()).toString();
+        juce::File file (path);
+        if (! file.exists())
+        {
+            warnings.add (what + ": plugin not found (" + path + ")");
+            return {};
+        }
+
+        juce::PluginDescription desc;
+        juce::String error;
+        auto instance = createInstance (file, error, &desc);
+        if (instance == nullptr)
+        {
+            warnings.add (what + ": " + error);
+            return {};
+        }
+        if (uid.isNotEmpty() && desc.createIdentifierString() != uid)
+            warnings.add (what + ": plugin identity changed (" + desc.name + ")");
+
+        const juce::String stateName = ref.getProperty ("state", juce::String()).toString();
+        if (stateName.isNotEmpty())
+        {
+            auto stateFile = pluginsDir.getChildFile (stateName);
+            // never follow a path outside plugins/ from a hostile song.json
+            if (! stateFile.getFullPathName().startsWith (pluginsDir.getFullPathName()))
+                warnings.add (what + ": suspicious state path ignored (" + stateName + ")");
+            else if (stateFile.existsAsFile())
+            {
+                if (stateFile.getSize() > (juce::int64) kMaxStateBytes)
+                    warnings.add (what + ": state file too large, skipped");
+                else
+                {
+                    juce::MemoryBlock mb;
+                    if (stateFile.loadFileAsData (mb) && mb.getSize() > 0)
+                        instance->setStateInformation (mb.getData(), (int) mb.getSize());
+                }
+            }
+        }
+        return { std::move (instance), desc };
+    };
+
+    const auto* channels = root.getProperty ("channels", {}).getArray();
+    if (channels != nullptr)
+    {
+        for (int ch = 0; ch < juce::jmin (kMixChannels, channels->size()); ++ch)
+        {
+            const auto& cv = channels->getReference (ch);
+            if (! cv.isObject())
+                continue;
+            auto& s = slots[ch];
+
+            strips[ch]->setGain (juce::jlimit (0.0f, 1.5f, (float) (double) cv.getProperty ("gain", 1.0)));
+            mutes[ch] = (bool) cv.getProperty ("mute", false);
+            solos[ch] = (bool) cv.getProperty ("solo", false);
+
+            auto [inst, desc] = loadRef (cv.getProperty ("instrument", {}), "CH" + juce::String (ch + 1));
+            if (inst != nullptr)
+            {
+                s.instrumentName = inst->getName();
+                s.instrumentDesc = desc;
+                s.instrument = graph.addNode (std::move (inst));
+            }
+
+            if (const auto* ins = cv.getProperty ("inserts", {}).getArray())
+                for (int i = 0, slot = 0; i < ins->size() && slot < kMaxInserts; ++i)
+                {
+                    auto [fx, fdesc] = loadRef (ins->getReference (i),
+                                                "CH" + juce::String (ch + 1) + " FX" + juce::String (i + 1));
+                    if (fx != nullptr)
+                    {
+                        s.insertNames[slot] = fx->getName();
+                        s.insertDescs[slot] = fdesc;
+                        s.inserts[slot] = graph.addNode (std::move (fx));
+                        ++slot;
+                    }
+                }
+        }
+    }
+
+    const auto mv = root.getProperty ("master", {});
+    if (mv.isObject())
+    {
+        masterStrip->setGain (juce::jlimit (0.0f, 1.5f, (float) (double) mv.getProperty ("gain", 1.0)));
+        if (const auto* ins = mv.getProperty ("inserts", {}).getArray())
+            for (int i = 0, slot = 0; i < ins->size() && slot < kMaxInserts; ++i)
+            {
+                auto [fx, fdesc] = loadRef (ins->getReference (i), "Master FX" + juce::String (i + 1));
+                if (fx != nullptr)
+                {
+                    masterInsertNames[slot] = fx->getName();
+                    masterInsertDescs[slot] = fdesc;
+                    masterInserts[slot] = graph.addNode (std::move (fx));
+                    ++slot;
+                }
+            }
+    }
+
+    updateMuteStates();
+    return {};
+}
+
+juce::String HostEngine::loadProject (const juce::File& ubtDir, juce::StringArray& warnings)
+{
+    auto jsonFile = ubtDir.getChildFile ("song.json");
+    if (! jsonFile.existsAsFile())
+        return "song.json not found in " + ubtDir.getFullPathName();
+
+    const auto root = juce::JSON::parse (jsonFile.loadFileAsString());
+    if (! root.isObject())
+        return "song.json: invalid JSON";
+    if (root.getProperty ("format", juce::String()).toString() != ProjectIO::kFormatTag)
+        return "song.json: unknown format";
+
+    Song loaded;
+    if (auto err = ProjectIO::songFromVar (root.getProperty ("song", {}), loaded); err.isNotEmpty())
+        return err;
+
+    if (loaded.getNumChannels() > kMixChannels)
+    {
+        warnings.add ("project uses " + juce::String (loaded.getNumChannels())
+                      + " channels, mixer handles " + juce::String (kMixChannels));
+        loaded.setNumChannels (kMixChannels);
+    }
+
+    sequencer->stop();
+    ScopedDetach detach (*this);
+
+    unloadAllPluginsDetached();
+    song = std::move (loaded);
+    sequencer->setSong (&song);   // same address, but keeps intent explicit
+    sequencer->setEditPatternIndex (0);
+    sequencer->setTempo ((double) root.getProperty ("bpm", 125.0),
+                         (int) root.getProperty ("speed", 6));
+
+    projectDir = ubtDir;
+    restorePlugins (root, warnings);
+    rebuildConnections();
+    return {};
+}
+
+void HostEngine::newProject()
+{
+    sequencer->stop();
+    ScopedDetach detach (*this);
+    unloadAllPluginsDetached();
+    song = Song();
+    sequencer->setSong (&song);
+    sequencer->setEditPatternIndex (0);
+    sequencer->setTempo (125.0, 6);
+    projectDir = juce::File();
+    rebuildConnections();
+}
+
+void HostEngine::autosaveBackup()
+{
+    if (! hasProject())
+        return;
+
+    auto backups = projectDir.getChildFile ("backups");
+    backups.createDirectory();
+    backups.getChildFile ("song-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".json")
+           .replaceWithText (juce::JSON::toString (buildProjectVar (false)));
+
+    auto files = backups.findChildFiles (juce::File::findFiles, false, "song-*.json");
+    std::sort (files.begin(), files.end(),
+               [] (const juce::File& a, const juce::File& b) { return a.getFileName() < b.getFileName(); });
+    while (files.size() > kMaxBackups)
+    {
+        files.getReference (0).deleteFile();
+        files.remove (0);
+    }
 }
 
 // ---------------------------------------------------------------- mixer

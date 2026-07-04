@@ -3,9 +3,16 @@
 MainComponent::MainComponent()
 {
     // ---- toolbar ----
-    addAndMakeVisible (audioBtn);
-    audioBtn.setWantsKeyboardFocus (false);
-    audioBtn.onClick = [this] { showAudioSettings(); };
+    for (auto* b : { &audioBtn, &newBtn, &openBtn, &saveBtn, &saveAsBtn })
+    {
+        b->setWantsKeyboardFocus (false);
+        addAndMakeVisible (b);
+    }
+    audioBtn.onClick  = [this] { showAudioSettings(); };
+    newBtn.onClick    = [this] { newProject(); };
+    openBtn.onClick   = [this] { openProject(); };
+    saveBtn.onClick   = [this] { saveProject(); };
+    saveAsBtn.onClick = [this] { saveProjectAs(); };
 
     // ---- transport ----
     for (auto* b : { &playBtn, &stopBtn })
@@ -103,8 +110,43 @@ MainComponent::MainComponent()
     keyboard.setMidiChannel (1);
 
     refreshStatus();
+    markStateSaved();   // startup state = reference for the dirty check
     startTimerHz (4);
     setSize (1240, 940);
+}
+
+void MainComponent::confirmAndQuit()
+{
+    if (! hasUnsavedChanges())
+    {
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        return;
+    }
+
+    juce::AlertWindow::showYesNoCancelBox (
+        juce::MessageBoxIconType::QuestionIcon,
+        "Unsaved changes",
+        "The project has unsaved changes.",
+        "Save & quit", "Quit without saving", "Cancel", this,
+        juce::ModalCallbackFunction::create ([this] (int result)
+        {
+            if (result == 1)          // save & quit
+            {
+                if (engine.hasProject())
+                {
+                    saveProject();
+                    juce::JUCEApplication::getInstance()->systemRequestedQuit();
+                }
+                else
+                {
+                    quitAfterSave = true;
+                    saveProjectAs();   // quits in the chooser callback on success
+                }
+            }
+            else if (result == 2)     // quit without saving
+                juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            // 0 = cancel: stay
+        }));
 }
 
 MainComponent::~MainComponent()
@@ -119,7 +161,134 @@ void MainComponent::timerCallback()
     if ((int) patSlider.getValue() != edited)
         patSlider.setValue ((double) edited, juce::dontSendNotification);
 
+    // autosave every 3 minutes once a project exists
+    const auto now = juce::Time::getMillisecondCounter();
+    if (lastAutosaveMs == 0)
+        lastAutosaveMs = now;
+    if (engine.hasProject() && now - lastAutosaveMs > 180'000)
+    {
+        lastAutosaveMs = now;
+        engine.autosaveBackup();
+    }
+
     refreshStatus();
+}
+
+// ---------------------------------------------------------------- project
+
+void MainComponent::newProject()
+{
+    engine.newProject();
+    syncFromEngine();
+    markStateSaved();
+}
+
+void MainComponent::openProject()
+{
+    chooser = std::make_unique<juce::FileChooser> (
+        "Open project (.ubt folder)",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.ubt");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                              | juce::FileBrowserComponent::canSelectDirectories,
+        [this] (const juce::FileChooser& fc)
+        {
+            const auto dir = fc.getResult();
+            if (dir == juce::File())
+                return;
+
+            juce::StringArray warnings;
+            const auto error = engine.loadProject (dir, warnings);
+            if (error.isNotEmpty())
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                        "Open failed", error);
+                return;
+            }
+            syncFromEngine();
+            markStateSaved();
+            if (! warnings.isEmpty())
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon,
+                                                        "Project loaded with warnings",
+                                                        warnings.joinIntoString ("\n"));
+        });
+}
+
+void MainComponent::saveProject()
+{
+    if (! engine.hasProject())
+    {
+        saveProjectAs();
+        return;
+    }
+    const auto error = engine.saveProject (engine.getProjectDir());
+    if (error.isNotEmpty())
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save failed", error);
+    else
+        markStateSaved();
+    updateTitle();
+}
+
+void MainComponent::saveProjectAs()
+{
+    chooser = std::make_unique<juce::FileChooser> (
+        "Save project as (.ubt folder)",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.ubt");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this] (const juce::FileChooser& fc)
+        {
+            auto target = fc.getResult();
+            if (target == juce::File())
+                return;
+            if (! target.getFileName().endsWithIgnoreCase (".ubt"))
+                target = target.withFileExtension (".ubt");
+
+            const auto error = engine.saveProject (target);
+            if (error.isNotEmpty())
+            {
+                quitAfterSave = false;
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                        "Save failed", error);
+            }
+            else
+            {
+                markStateSaved();
+                if (quitAfterSave)
+                    juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            }
+            updateTitle();
+        });
+}
+
+void MainComponent::syncFromEngine()
+{
+    auto& seq = engine.getSequencer();
+    bpmSlider.setValue (seq.getBpm(), juce::dontSendNotification);
+    speedSlider.setValue ((double) seq.getSpeed(), juce::dontSendNotification);
+    chanSlider.setValue ((double) engine.getSong().getNumChannels(), juce::dontSendNotification);
+
+    patSlider.setRange (0.0, juce::jmax (1.0, (double) (engine.getSong().getNumPatterns() - 1)), 1.0);
+    patSlider.setValue (0.0, juce::dontSendNotification);
+    seq.setEditPatternIndex (0);
+
+    juce::StringArray ord;
+    for (int i = 0; i < engine.getSong().orderLen; ++i)
+        ord.add (juce::String (engine.getSong().order[i]));
+    orderEdit.setText (ord.joinIntoString (" "), juce::dontSendNotification);
+
+    songModeBtn.setToggleState (seq.isSongMode(), juce::dontSendNotification);
+    mixer.syncFromEngine();
+    patternEditor.repaint();
+    updateTitle();
+    refreshStatus();
+}
+
+void MainComponent::updateTitle()
+{
+    if (auto* dw = dynamic_cast<juce::DocumentWindow*> (getTopLevelComponent()))
+        dw->setName (engine.hasProject()
+                         ? "PPsVaultTracker - " + engine.getProjectDir().getFileNameWithoutExtension()
+                         : juce::String ("PPsVaultTracker"));
 }
 
 void MainComponent::paint (juce::Graphics& g)
@@ -132,7 +301,16 @@ void MainComponent::resized()
     auto area = getLocalBounds().reduced (10);
 
     auto bar = area.removeFromTop (32);
-    audioBtn.setBounds (bar.removeFromLeft (110));
+    auto placeBar = [&bar] (juce::Component& c, int w)
+    {
+        c.setBounds (bar.removeFromLeft (w));
+        bar.removeFromLeft (8);
+    };
+    placeBar (audioBtn, 110);
+    placeBar (newBtn, 64);
+    placeBar (openBtn, 84);
+    placeBar (saveBtn, 70);
+    placeBar (saveAsBtn, 96);
 
     area.removeFromTop (6);
     auto transport = area.removeFromTop (30);

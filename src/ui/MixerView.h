@@ -14,6 +14,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void syncFromEngine();   // labels + faders + M/S states (after project load)
 
 private:
     static constexpr int kNumStrips = HostEngine::kMixChannels + 1;   // + master
