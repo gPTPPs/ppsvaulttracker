@@ -1,0 +1,7 @@
+# build output
+build*/
+
+# IDE / local
+.vs/
+*.user
+CMakeUserPresets.json
