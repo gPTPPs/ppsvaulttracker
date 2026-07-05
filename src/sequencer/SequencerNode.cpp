@@ -1,23 +1,30 @@
 #include "sequencer/SequencerNode.h"
+#include "sequencer/CcInterp.h"
 #include "model/EffectCommands.h"
 
-// deliver deferred note events that fall inside this block, age the rest
+// add now if the event lands in this block, else queue it for a later block
+void SequencerNode::deferOrEmit (juce::MidiBuffer& midi, int numSamples, int at,
+                                 juce::MidiMessage msg, bool flushOnStop)
+{
+    if (at < numSamples)
+        midi.addEvent (msg, juce::jmax (0, at));
+    else if (numPendingMidi < kMaxPendingMidi)
+        pendingMidi[numPendingMidi++] = { at - numSamples, std::move (msg), flushOnStop };
+}
+
+// deliver deferred events that fall inside this block, age the rest
 void SequencerNode::flushPending (juce::MidiBuffer& midi, int numSamples)
 {
     int keep = 0;
     for (int i = 0; i < numPendingMidi; ++i)
     {
-        auto e = pendingMidi[i];
+        auto& e = pendingMidi[i];
         if (e.samplesUntil < numSamples)
-        {
-            midi.addEvent (e.noteOn ? juce::MidiMessage::noteOn ((int) e.midiCh, (int) e.note, e.vel)
-                                    : juce::MidiMessage::noteOff ((int) e.midiCh, (int) e.note),
-                           e.samplesUntil);
-        }
+            midi.addEvent (e.msg, e.samplesUntil);
         else
         {
             e.samplesUntil -= numSamples;
-            pendingMidi[keep++] = e;
+            pendingMidi[keep++] = std::move (e);
         }
     }
     numPendingMidi = keep;
@@ -26,10 +33,48 @@ void SequencerNode::flushPending (juce::MidiBuffer& midi, int numSamples)
 void SequencerNode::cancelPending (juce::MidiBuffer& midi)
 {
     for (int i = 0; i < numPendingMidi; ++i)
-        if (! pendingMidi[i].noteOn)   // pending cuts must still silence their note
-            midi.addEvent (juce::MidiMessage::noteOff ((int) pendingMidi[i].midiCh,
-                                                       (int) pendingMidi[i].note), 0);
+        if (pendingMidi[i].flushOnStop)   // pending cuts must still silence their note
+            midi.addEvent (pendingMidi[i].msg, 0);
     numPendingMidi = 0;
+}
+
+// tick-resolution CC/pitch ramps for smooth lanes over one row's span
+void SequencerNode::emitSmoothRamps (juce::MidiBuffer& midi, int numSamples,
+                                     Pattern& pat, int row, int offset)
+{
+    const int numChannels = juce::jmin (pat.getNumChannels(), 16);
+    const int speedNow = juce::jmax (1, speedAtomic.load());
+    const double spt = clock.samplesPerTick();
+    const bool inSongMode = songMode.load();
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        if (inSongMode && song->orderMuted (curOrderPos, ch))
+            continue;
+
+        for (int slot = 0; slot <= FxCmd::kNumSlots; ++slot)   // 0..7 = A..H, 8 = pitch bend
+        {
+            const uint8_t cmd = slot < FxCmd::kNumSlots ? (uint8_t) (FxCmd::kSlotA + slot)
+                                                        : (uint8_t) FxCmd::kPitchBend;
+            if (! song->isSmooth (ch, cmd) || ! CcInterp::hasAnyPoint (pat, ch, cmd))
+                continue;
+
+            for (int t = 0; t < speedNow; ++t)
+            {
+                const int v = CcInterp::valueAt (pat, ch, cmd, (double) row + (double) t / (double) speedNow);
+                if (v < 0 || v == lastSmoothCc[ch][slot])
+                    continue;
+                lastSmoothCc[ch][slot] = v;
+
+                const int at = offset + (int) ((double) t * spt);
+                auto msg = cmd == FxCmd::kPitchBend
+                               ? juce::MidiMessage::pitchWheel (ch + 1, v << 7)
+                               : juce::MidiMessage::controllerEvent (ch + 1,
+                                     (int) song->ccForSlot (ch, slot), v);
+                deferOrEmit (midi, numSamples, at, std::move (msg), false);
+            }
+        }
+    }
 }
 
 void SequencerNode::triggerClick (int offset, bool accent)
@@ -95,6 +140,9 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
         numPendingMidi = 0;
         for (auto& n : activeNotes)
             n = 0;
+        for (auto& track : lastSmoothCc)
+            for (auto& v : track)
+                v = -1;
     }
     else if (! playNow && wasPlaying)
     {
@@ -151,12 +199,10 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
     // note events land in this block or join the pending queue (Nxx / Kxx)
     auto emitOrDefer = [&] (bool on, int midiCh, int note, juce::uint8 vel, int at)
     {
-        if (at < numSamples)
-            midi.addEvent (on ? juce::MidiMessage::noteOn (midiCh, note, vel)
-                              : juce::MidiMessage::noteOff (midiCh, note), at);
-        else if (numPendingMidi < kMaxPendingMidi)
-            pendingMidi[numPendingMidi++] = { at - numSamples, on,
-                                              (uint8_t) midiCh, (uint8_t) note, vel };
+        deferOrEmit (midi, numSamples, at,
+                     on ? juce::MidiMessage::noteOn (midiCh, note, vel)
+                        : juce::MidiMessage::noteOff (midiCh, note),
+                     ! on /* note-offs flush on stop */);
     };
 
     clock.advance (numSamples, pat->getNumRows(), [&] (int row, int offset)
@@ -207,12 +253,13 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
             const uint8_t fx = FxCmd::sanitize (c.effect);
             const int fxVal = juce::jmin ((int) c.effectValue, 127);
 
-            // CC and pitch bend fire at the row start, even without a note
-            if (FxCmd::isSlot (fx))
+            // CC and pitch bend fire at the row start, even without a note —
+            // unless this command is smooth (then emitSmoothRamps owns it)
+            if (FxCmd::isSlot (fx) && ! song->isSmooth (ch, fx))
                 midi.addEvent (juce::MidiMessage::controllerEvent (midiCh,
                                    (int) song->ccForSlot (ch, FxCmd::slotIndex (fx)), fxVal),
                                offset);
-            else if (fx == FxCmd::kPitchBend)
+            else if (fx == FxCmd::kPitchBend && ! song->isSmooth (ch, fx))
                 midi.addEvent (juce::MidiMessage::pitchWheel (midiCh, fxVal << 7), offset);
 
             // Nxx delays the whole cell: previous-note kill AND trigger move together
@@ -243,6 +290,8 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
                 activeNotes[ch] = 0;
             }
         }
+
+        emitSmoothRamps (midi, numSamples, *pat, row, offset);
 
         uiRow.store (row);
         uiPatternIdx.store (curPattern);

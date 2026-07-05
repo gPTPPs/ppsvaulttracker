@@ -1,6 +1,7 @@
 #include "ui/CcLanePanel.h"
 #include "ui/RVLookAndFeel.h"
 #include "ui/TrackStyle.h"
+#include "sequencer/CcInterp.h"
 
 CcLanePanel::CcLanePanel (HostEngine& e, PatternEditor& ed) : engine (e), editor (ed)
 {
@@ -17,6 +18,14 @@ CcLanePanel::CcLanePanel (HostEngine& e, PatternEditor& ed) : engine (e), editor
         b.onClick = [this, i] { choice = i; refreshSlotButtons(); repaint(); };
         addAndMakeVisible (b);
     }
+    smoothBtn.setClickingTogglesState (true);
+    smoothBtn.setColour (juce::TextButton::buttonOnColourId, RV::cyan);
+    smoothBtn.setColour (juce::TextButton::textColourOnId, RV::cyan);
+    smoothBtn.setTooltip ("Smooth: ramp this lane at tick resolution");
+    smoothBtn.setWantsKeyboardFocus (false);
+    smoothBtn.onClick = [this] { toggleSmooth(); };
+    addAndMakeVisible (smoothBtn);
+
     refreshSlotButtons();
     startTimerHz (30);
 }
@@ -25,6 +34,18 @@ void CcLanePanel::refreshSlotButtons()
 {
     for (int i = 0; i < kNumChoices; ++i)
         choiceBtns[i].setToggleState (i == choice, juce::dontSendNotification);
+    smoothBtn.setToggleState (smoothOn(), juce::dontSendNotification);
+}
+
+void CcLanePanel::toggleSmooth()
+{
+    auto& song = engine.getSong();
+    const uint8_t cmd = command();
+    const int bit = choice < FxCmd::kNumSlots ? choice : Song::kPitchSmoothBit;
+    if (song.isSmooth (track, cmd)) song.ccSmooth[track] &= ~(uint16_t) (1u << bit);
+    else                            song.ccSmooth[track] |=  (uint16_t) (1u << bit);
+    refreshSlotButtons();
+    repaint();
 }
 
 void CcLanePanel::setTrack (int t)
@@ -33,6 +54,7 @@ void CcLanePanel::setTrack (int t)
     if (clamped != track)
     {
         track = clamped;
+        refreshSlotButtons();   // smooth button reflects the new track+command
         repaint();
     }
 }
@@ -66,6 +88,8 @@ void CcLanePanel::resized()
         choiceBtns[i].setBounds (header.removeFromRight (26));
         header.removeFromRight (3);
     }
+    header.removeFromRight (8);
+    smoothBtn.setBounds (header.removeFromRight (26));
 }
 
 void CcLanePanel::paint (juce::Graphics& g)
@@ -114,6 +138,35 @@ void CcLanePanel::paint (juce::Graphics& g)
         g.fillRect ((float) plot.getX(), cy, (float) plot.getWidth(), 1.0f);
     }
 
+    const bool smooth = smoothOn() && CcInterp::hasAnyPoint (*p, track, cmd);
+
+    auto valY = [&] (int value) { return (float) plot.getBottom() - (float) plot.getHeight() * (float) value / 127.0f; };
+
+    if (smooth)
+    {
+        // interpolated ramp: filled area under the polyline of valueAt(row)
+        juce::Path area, line;
+        bool started = false;
+        for (int r = 0; r < rows; ++r)
+        {
+            const int v = CcInterp::valueAt (*p, track, cmd, (double) r);
+            const float x = (float) plot.getX() + rowW * ((float) r + 0.5f);
+            const float y = valY (juce::jmax (0, v));
+            if (! started) { area.startNewSubPath (x, (float) plot.getBottom()); area.lineTo (x, y);
+                             line.startNewSubPath (x, y); started = true; }
+            else           { area.lineTo (x, y); line.lineTo (x, y); }
+        }
+        if (started)
+        {
+            area.lineTo ((float) plot.getX() + rowW * ((float) (rows - 1) + 0.5f), (float) plot.getBottom());
+            area.closeSubPath();
+            g.setColour (accent.withAlpha (0.20f));
+            g.fillPath (area);
+            g.setColour (accent.withAlpha (0.9f));
+            g.strokePath (line, juce::PathStrokeType (1.5f));
+        }
+    }
+
     for (int r = 0; r < rows; ++r)
     {
         const Cell& c = p->at (r, track);
@@ -122,9 +175,18 @@ void CcLanePanel::paint (juce::Graphics& g)
 
         if (c.effect == cmd)
         {
-            const float h = juce::jmax (2.0f, (float) plot.getHeight() * (float) c.effectValue / 127.0f);
-            g.setColour (accent.withAlpha (0.85f));
-            g.fillRect (x, (float) plot.getBottom() - h, w, h);
+            if (smooth)   // authored control point: a dot on the ramp
+            {
+                g.setColour (accent);
+                g.fillEllipse ((float) plot.getX() + rowW * ((float) r + 0.5f) - 2.0f,
+                               valY (c.effectValue) - 2.0f, 4.0f, 4.0f);
+            }
+            else
+            {
+                const float h = juce::jmax (2.0f, (float) plot.getHeight() * (float) c.effectValue / 127.0f);
+                g.setColour (accent.withAlpha (0.85f));
+                g.fillRect (x, (float) plot.getBottom() - h, w, h);
+            }
         }
         else if (c.effect != FxCmd::kNone)
         {

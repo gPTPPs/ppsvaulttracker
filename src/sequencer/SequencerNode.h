@@ -106,13 +106,19 @@ private:
     int  curPattern = 0;
     int  activeNotes[Pattern::kMaxChannels] = {};   // 0 = none, else note + 1
 
-    // note events pushed past the current block by Nxx (delay) / Kxx (cut)
-    struct PendingMidi { int samplesUntil; bool noteOn; uint8_t midiCh, note, vel; };
-    static constexpr int kMaxPendingMidi = 64;
+    // events pushed past the current block: Nxx/Kxx notes and smooth-CC ramp
+    // ticks. flushOnStop marks note-offs that must still fire if we stop.
+    struct PendingMidi { int samplesUntil; juce::MidiMessage msg; bool flushOnStop; };
+    static constexpr int kMaxPendingMidi = 256;
     PendingMidi pendingMidi[kMaxPendingMidi];
     int numPendingMidi = 0;
+    void deferOrEmit (juce::MidiBuffer&, int numSamples, int at, juce::MidiMessage, bool flushOnStop);
     void flushPending (juce::MidiBuffer&, int numSamples);
-    void cancelPending (juce::MidiBuffer&);   // on stop: emit note-offs now, drop note-ons
+    void cancelPending (juce::MidiBuffer&);   // on stop: emit note-offs now, drop the rest
+
+    // smooth-CC ramp emission for one row span (audio thread)
+    void emitSmoothRamps (juce::MidiBuffer&, int numSamples, Pattern&, int row, int offset);
+    int lastSmoothCc[Pattern::kMaxChannels][FxCmd::kNumSlots + 1];   // -1 = nothing emitted yet
 
     // click synth + pre-count (audio thread only)
     struct PendingClick { int offset; bool accent; };

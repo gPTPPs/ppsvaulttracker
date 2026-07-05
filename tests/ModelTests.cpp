@@ -8,6 +8,7 @@
 #include "model/Pattern.h"
 #include "model/Song.h"
 #include "sequencer/TrackerClock.h"
+#include "sequencer/CcInterp.h"
 
 static int failures = 0;
 
@@ -199,6 +200,43 @@ static void testSwapTracks()
     CHECK (s.getPattern (0)->at (0, 0).note == 60);
 }
 
+static void testSmoothMask()
+{
+    Song s;
+    CHECK (! s.isSmooth (0, FxCmd::kSlotA));
+    s.ccSmooth[0] = (1u << 0) | (1u << Song::kPitchSmoothBit);   // slot A + pitch
+    CHECK (s.isSmooth (0, FxCmd::kSlotA));
+    CHECK (s.isSmooth (0, FxCmd::kPitchBend));
+    CHECK (! s.isSmooth (0, (uint8_t) (FxCmd::kSlotA + 1)));   // slot B
+    CHECK (! s.isSmooth (1, FxCmd::kSlotA));       // other track untouched
+    CHECK (! s.isSmooth (0, FxCmd::kNoteCut));     // non-CC command never smooth
+    CHECK (! s.isSmooth (-1, FxCmd::kSlotA) && ! s.isSmooth (99, FxCmd::kSlotA));
+}
+
+static void testCcInterp()
+{
+    Pattern p (16, 1);
+    const uint8_t A = FxCmd::kSlotA;
+    p.at (0, 0)  = { Cell::kEmpty, 0, 64, A, 0 };     // point 0 -> 0
+    p.at (8, 0)  = { Cell::kEmpty, 0, 64, A, 64 };    // point 8 -> 64
+    p.at (12, 0) = { Cell::kEmpty, 0, 64, A, 32 };    // point 12 -> 32
+
+    const uint8_t B = FxCmd::kSlotA + 1;
+    CHECK (CcInterp::hasAnyPoint (p, 0, A));
+    CHECK (! CcInterp::hasAnyPoint (p, 0, B));
+    CHECK (CcInterp::valueAt (p, 0, B, 3.0) == -1);   // no points -> silent
+
+    CHECK (CcInterp::valueAt (p, 0, A, 0.0) == 0);     // on a control point
+    CHECK (CcInterp::valueAt (p, 0, A, 8.0) == 64);
+    CHECK (CcInterp::valueAt (p, 0, A, 4.0) == 32);    // midway 0->64
+    CHECK (CcInterp::valueAt (p, 0, A, 2.0) == 16);    // quarter
+    CHECK (CcInterp::valueAt (p, 0, A, 10.0) == 48);   // midway 64->32
+    CHECK (CcInterp::valueAt (p, 0, A, 14.0) == 32);   // after last point: hold
+
+    // sub-row (tick-level) sampling interpolates within a row
+    CHECK (CcInterp::valueAt (p, 0, A, 4.5) == 36);    // 0->64 over 8 rows = 8/row
+}
+
 int main()
 {
     testCell();
@@ -206,6 +244,8 @@ int main()
     testFxCommands();
     testCcSlotTable();
     testSwapTracks();
+    testSmoothMask();
+    testCcInterp();
     testClockMath();
     testClockAdvance();
     testClockLoop();

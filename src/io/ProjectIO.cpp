@@ -75,6 +75,18 @@ juce::var ProjectIO::songToVar (const Song& s)
     }
     root->setProperty ("ccSlots", juce::var (ccTable));
 
+    // smooth-lane masks (session 4): one per track, emitted only if any set
+    bool anySmooth = false;
+    for (int t = 0; t < Song::kCcTracks && ! anySmooth; ++t)
+        anySmooth = s.ccSmooth[t] != 0;
+    if (anySmooth)
+    {
+        juce::Array<juce::var> masks;
+        for (int t = 0; t < Song::kCcTracks; ++t)
+            masks.add ((int) s.ccSmooth[t]);
+        root->setProperty ("ccSmooth", juce::var (masks));
+    }
+
     // track identity: emitted only when something is customised, so default
     // projects keep the exact same song.json as before
     bool anyTrackStyle = false;
@@ -188,6 +200,16 @@ juce::String ProjectIO::songFromVar (const juce::var& v, Song& out)
             for (int slot = 0; slot < juce::jmin ((int) track->size(), FxCmd::kNumSlots); ++slot)
                 out.ccSlots[t][slot] = (uint8_t) juce::jlimit (0, 127, (int) track->getReference (slot));
         }
+    }
+
+    // smooth-lane masks: optional array of per-track 9-bit masks
+    if (const auto& sv = v.getProperty ("ccSmooth", {}); ! sv.isVoid())
+    {
+        const auto* masks = sv.getArray();
+        if (masks == nullptr)
+            return "ccSmooth: not an array";
+        for (int t = 0; t < juce::jmin ((int) masks->size(), Song::kCcTracks); ++t)
+            out.ccSmooth[t] = (uint16_t) (juce::jlimit (0, 0x1ff, (int) masks->getReference (t)));
     }
 
     // arrangement matrix: optional array of per-entry bitmasks

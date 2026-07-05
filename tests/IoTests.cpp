@@ -282,6 +282,69 @@ static void testOrderMutesIo()
            && ! s.orderMuted (Song::kMaxOrder, 0) && ! s.orderMuted (0, Song::kCcTracks));
 }
 
+static void testSmoothIo()
+{
+    Song original = makeSong();
+    original.ccSmooth[0] = (1u << 0) | (1u << Song::kPitchSmoothBit);
+    original.ccSmooth[2] = 1u << 7;   // slot H
+
+    const auto json = juce::JSON::toString (ProjectIO::songToVar (original));
+    Song restored;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (json), restored).isEmpty());
+    CHECK (restored.ccSmooth[0] == ((1u << 0) | (1u << Song::kPitchSmoothBit)));
+    CHECK (restored.ccSmooth[2] == (1u << 7));
+    CHECK (restored.ccSmooth[1] == 0);
+
+    // absent -> all off, not an error (older files)
+    const auto plainJson = juce::JSON::toString (ProjectIO::songToVar (makeSong()));
+    CHECK (! plainJson.contains ("ccSmooth"));
+    Song plainBack;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (plainJson), plainBack).isEmpty());
+    CHECK (plainBack.ccSmooth[0] == 0);
+
+    // malformed fatal, out-of-range masks clamped to 9 bits
+    Song s;
+    const auto bad = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ], "ccSmooth": "nope" })");
+    CHECK (ProjectIO::songFromVar (bad, s).isNotEmpty());
+    const auto hostile = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ], "ccSmooth": [99999, -1] })");
+    CHECK (ProjectIO::songFromVar (hostile, s).isEmpty());
+    CHECK (s.ccSmooth[0] == 0x1ff && s.ccSmooth[1] == 0);
+}
+
+static void testMidiExportSmooth()
+{
+    Song s;
+    s.setNumChannels (1);
+    s.ccSmooth[0] = 1u << 0;                             // smooth slot A (CC74 default)
+    s.getPattern (0)->at (0, 0) = { 0, 0, 64, FxCmd::kSlotA, 0 };    // A00
+    s.getPattern (0)->at (4, 0) = { 0, 0, 64, FxCmd::kSlotA, 64 };   // A40 -> ramp 0..64
+
+    const auto mf = MidiExport::songToMidi (s, 125.0, 6, { "T" });
+    const int rt = MidiExport::rowTicks (6);   // 240
+    const auto* t = mf.getTrack (1);
+
+    int cc74events = 0;
+    bool midpointSeen = false;   // ~CC 32 around row 2 (tick 480)
+    double lastTick = -1;
+    for (int i = 0; i < t->getNumEvents(); ++i)
+    {
+        const auto& m = t->getEventPointer (i)->message;
+        if (m.isController() && m.getControllerNumber() == 74)
+        {
+            ++cc74events;
+            lastTick = m.getTimeStamp();
+            if (m.getControllerValue() >= 28 && m.getControllerValue() <= 36
+                && std::abs (m.getTimeStamp() - 2.0 * rt) < rt)
+                midpointSeen = true;
+        }
+    }
+    CHECK (cc74events > 8);            // many interpolated steps, not just 2 rows
+    CHECK (midpointSeen);              // ramp actually passes through the middle
+    CHECK (lastTick <= 4.0 * rt + 1);  // holds after the last point (no runaway)
+}
+
 static void testMidiExportOrderMutes()
 {
     Song s;
@@ -415,6 +478,8 @@ int main()
     testTrackStyleIo();
     testPatternNames();
     testOrderMutesIo();
+    testSmoothIo();
+    testMidiExportSmooth();
     testMidiExportOrderMutes();
     testMidiExportEffects();
     testModMapping();

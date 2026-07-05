@@ -102,6 +102,22 @@ public:
     // CC slot table (A..H per track), values 0..127
     uint8_t ccSlots[kCcTracks][FxCmd::kNumSlots] = {};
 
+    // per-track "smooth" mask: bit s (0..7) = slot A..H, bit 8 = pitch bend.
+    // When set, the sequencer ramps that command at tick resolution between
+    // its effect-column cells instead of stepping at each row.
+    static constexpr int kPitchSmoothBit = FxCmd::kNumSlots;   // bit 8
+    uint16_t ccSmooth[kCcTracks] = {};
+
+    // smooth-enabled for command cmd (a slot A..H or pitch bend) on this track
+    bool isSmooth (int track, uint8_t cmd) const
+    {
+        if (track < 0 || track >= kCcTracks)
+            return false;
+        const int bit = FxCmd::isSlot (cmd) ? FxCmd::slotIndex (cmd)
+                      : (cmd == FxCmd::kPitchBend ? kPitchSmoothBit : -1);
+        return bit >= 0 && (ccSmooth[track] & (1u << bit)) != 0;
+    }
+
     // track identity (message thread only — the audio thread never reads
     // these): empty name = default "CH n", colour 0 = theme default (ARGB)
     static constexpr int kMaxTrackNameLen = 24;

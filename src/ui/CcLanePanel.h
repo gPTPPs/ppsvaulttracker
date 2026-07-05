@@ -42,7 +42,11 @@ private:
     int track = 0;
     int choice = 0;          // 0..7 = slots A..H, 8 = pitch bend
 
+    void toggleSmooth();
+    bool smoothOn() const { return engine.getSong().isSmooth (track, command()); }
+
     juce::TextButton choiceBtns[kNumChoices];
+    juce::TextButton smoothBtn { "~" };   // ramp this lane at tick resolution
 
     // stroke state
     bool stroking = false, erasing = false;
