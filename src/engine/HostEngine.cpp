@@ -909,6 +909,19 @@ void HostEngine::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMe
         player.getMidiMessageCollector().addMessageToQueue (remapped);
 }
 
+void HostEngine::sendLiveController (int track, int controller, int value)
+{
+    pushLiveMessage (juce::MidiMessage::controllerEvent (juce::jlimit (1, 16, track + 1),
+                                                         juce::jlimit (0, 127, controller),
+                                                         juce::jlimit (0, 127, value)));
+}
+
+void HostEngine::sendLivePitchBend (int track, int value7bit)
+{
+    pushLiveMessage (juce::MidiMessage::pitchWheel (juce::jlimit (1, 16, track + 1),
+                                                    juce::jlimit (0, 127, value7bit) << 7));
+}
+
 void HostEngine::pushLiveMessage (juce::MidiMessage m)
 {
     if (deviceManager.getCurrentAudioDevice() == nullptr)

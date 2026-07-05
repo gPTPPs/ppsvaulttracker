@@ -65,6 +65,12 @@ MainComponent::MainComponent()
     setupToggle (followBtn,   true,  RV::cyan, [this] (bool on) { patternEditor.followPlayhead = on; });
     setupToggle (metroBtn,    false, RV::cyan, [this] (bool on) { engine.setMetronome (on); });
     setupToggle (precountBtn, false, RV::cyan, [this] (bool on) { engine.setPrecountEnabled (on); });
+    setupToggle (laneBtn,     false, RV::cyan, [this] (bool on)
+    {
+        laneVisible = on;
+        ccLane.setVisible (on && ! showingArrangement);
+        resized();
+    });
 
     // mode selectors never light up: the label IS the state, a click cycles it
     auto setupSelector = [this] (juce::TextButton& b, std::function<void()> cycle)
@@ -147,6 +153,7 @@ MainComponent::MainComponent()
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
     addAndMakeVisible (patternEditor);
+    addChildComponent (ccLane);   // shown via the Lane toggle
     // the mixer follows the grid, and keeps its own scrollbar so the MASTER
     // strip (one column past the last channel) stays reachable
     mixerViewport.setViewedComponent (&mixer, false);
@@ -172,6 +179,7 @@ MainComponent::MainComponent()
     {
         engine.setLiveChannel (ch);
         keyboard.setMidiChannel (ch + 1);
+        ccLane.setTrack (ch);   // the CC lane follows the cursor too
     };
 
     // track moves (from either the grid or the mixer) refresh both views
@@ -642,6 +650,7 @@ void MainComponent::resized()
     place (songRow, patLabel, 40, 2);
     place (songRow, patSlider, 96, 10);
     place (songRow, addPatBtn, 100);
+    laneBtn.setBounds (songRow.removeFromRight (70));
 
     area.removeFromTop (6);
     statusLabel.setBounds (area.removeFromTop (22));
@@ -659,6 +668,11 @@ void MainComponent::resized()
     mixerViewport.setBounds (area.removeFromBottom (200));
     mixer.setSize (mixer.currentIdealWidth(), mixerViewport.getHeight());
     area.removeFromBottom (6);
+    if (laneVisible)
+    {
+        ccLane.setBounds (area.removeFromBottom (110));
+        area.removeFromBottom (6);
+    }
     patternEditor.setBounds (area);
 }
 
@@ -705,6 +719,7 @@ void MainComponent::setView (bool arrangementMode)
     patternEditor.setVisible (! arrangementMode);
     mixerViewport.setVisible (! arrangementMode);
     keyboard.setVisible (! arrangementMode);
+    ccLane.setVisible (! arrangementMode && laneVisible);
     arrViewport.setVisible (arrangementMode);
     resized();
     if (arrangementMode)

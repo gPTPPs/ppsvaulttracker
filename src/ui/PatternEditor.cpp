@@ -53,6 +53,18 @@ PatternEditor::PatternEditor (HostEngine& e) : engine (e)
     startTimerHz (30);
 }
 
+void PatternEditor::beginExternalEdit (int channel)
+{
+    if (auto* p = pattern())
+        undo.begin (*p, { 0, p->getNumRows() - 1, channel, channel });
+}
+
+void PatternEditor::commitExternalEdit()
+{
+    if (auto* p = pattern())
+        undo.commit (*p);
+}
+
 // ---------------------------------------------------------------- painting
 
 int PatternEditor::visibleChannelCount() const

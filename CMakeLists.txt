@@ -33,6 +33,7 @@ target_sources(PPsVaultTracker PRIVATE
     src/io/ProjectIO.cpp
     src/sequencer/SequencerNode.cpp
     src/ui/ArrangementView.cpp
+    src/ui/CcLanePanel.cpp
     src/ui/MainComponent.cpp
     src/ui/MixerView.cpp
     src/ui/PatternEditor.cpp)

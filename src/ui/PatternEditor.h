@@ -25,7 +25,13 @@ public:
     int  editOctave = 3;         // low piano row octave (1..7)
 
     int getCursorChannel() const { return cursorChannel; }
+    int getCursorRow() const     { return cursorRow; }
     int getFirstChannel() const  { return firstChannel; }
+
+    // CC-lane plumbing: one drawing gesture = one transaction in THIS
+    // editor's undo stack (Ctrl+Z in the grid undoes lane strokes)
+    void beginExternalEdit (int channel);
+    void commitExternalEdit();
     std::function<void (int)> onCursorChannelChanged;   // live input follows the cursor
     std::function<void()> onViewChanged;                // mixer scroll follows the grid
 

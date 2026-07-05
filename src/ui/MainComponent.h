@@ -4,6 +4,7 @@
 #include "ui/PatternEditor.h"
 #include "ui/MixerView.h"
 #include "ui/ArrangementView.h"
+#include "ui/CcLanePanel.h"
 #include "ui/PillSlider.h"
 
 // Floating window hosting a plugin's own editor (or a generic one).
@@ -106,6 +107,9 @@ private:
     juce::Label statusLabel;
     juce::Array<juce::Rectangle<int>> toolbarSeparators;   // computed in resized(), drawn in paint()
     PatternEditor patternEditor { engine };
+    CcLanePanel ccLane { engine, patternEditor };
+    juce::TextButton laneBtn { "Lane" };   // shows/hides the CC lane (tracker view)
+    bool laneVisible = false;
     MixerView mixer { engine, [this] (juce::AudioPluginInstance* p) { showEditorFor (p); } };
     juce::Viewport mixerViewport;   // 17 strips don't fit: horizontal scroll
     ArrangementView arrangement { engine };

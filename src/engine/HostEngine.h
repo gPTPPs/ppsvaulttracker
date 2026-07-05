@@ -37,6 +37,11 @@ public:
     // live input (virtual keyboard + hardware MIDI) targets this channel
     void setLiveChannel (int ch) { liveChannel.store (juce::jlimit (0, kMixChannels - 1, ch)); }
 
+    // CC-lane audition: emit on the track's MIDI channel through the live
+    // input path, so drawing is audible immediately and MIDI-learnable
+    void sendLiveController (int track, int controller, int value);
+    void sendLivePitchBend (int track, int value7bit);   // 0x40 = centre
+
     // ---- live recording / metronome (6b) ----
     void setLiveRecording (bool on)   { liveRec.store (on); }
     void setMetronome (bool on)       { sequencer->setMetronome (on); }
