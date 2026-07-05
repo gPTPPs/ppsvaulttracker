@@ -1,6 +1,7 @@
 #include "ui/MixerView.h"
 #include "ui/RVLookAndFeel.h"
 #include "ui/TrackStyle.h"
+#include "ui/PillSlider.h"
 #include "io/ProjectIO.h"
 
 // Per-track CC slot editor (command letters A..H -> controller numbers),
@@ -26,7 +27,6 @@ public:
             r.letter.setColour (juce::Label::textColourId, RV::magenta);
             addAndMakeVisible (r.letter);
 
-            r.cc.setSliderStyle (juce::Slider::IncDecButtons);
             r.cc.setRange (0.0, 127.0, 1.0);
             r.cc.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 22);
             r.cc.setValue ((double) song.ccSlots[track][i], juce::dontSendNotification);
@@ -70,7 +70,7 @@ private:
                               juce::dontSendNotification);
     }
 
-    struct Row { juce::Label letter, name; juce::Slider cc; };
+    struct Row { juce::Label letter, name; PillSlider cc; };
     Song& song;
     int track;
     juce::Label title;
@@ -213,9 +213,9 @@ void MixerView::refreshTrackTitles()
 juce::Rectangle<int> MixerView::stripArea (int index) const
 {
     // channels sit exactly under their grid column; master right after the
-    // last active channel
+    // last active channel. kStripBoxW < kChanW: see GridMetrics.h.
     const int slot = index == kMaster ? activeChannels() : index;
-    return { GridMetrics::kRowNumW + slot * kStripW, 0, kStripW, getHeight() };
+    return { GridMetrics::kRowNumW + slot * kStripW, 0, GridMetrics::kStripBoxW, getHeight() };
 }
 
 void MixerView::showPluginMenu (juce::AudioPluginInstance* instance,
@@ -247,31 +247,32 @@ void MixerView::resized()
         if (! shown)
             continue;
 
-        auto r = stripArea (i).reduced (4);
+        auto r = stripArea (i).reduced (kStripPad);
 
         s.title.setBounds (r.removeFromTop (18));
+        r.removeFromTop (kRowGap);
         if (i != kMaster)
             s.instBtn.setBounds (r.removeFromTop (22));
         else
             r.removeFromTop (22);
-        r.removeFromTop (2);
+        r.removeFromTop (kRowGap);
         for (auto& b : s.fxBtn)
         {
             b.setBounds (r.removeFromTop (20));
-            r.removeFromTop (2);
+            r.removeFromTop (kRowGap);
         }
 
         if (i != kMaster)
         {
             auto ms = r.removeFromTop (22);
-            s.muteBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 3).reduced (1, 0));
-            s.soloBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 2).reduced (1, 0));
-            s.ccBtn.setBounds (ms.reduced (1, 0));
+            s.muteBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 3).reduced (2, 0));
+            s.soloBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 2).reduced (2, 0));
+            s.ccBtn.setBounds (ms.reduced (2, 0));
         }
         else
             r.removeFromTop (22);
 
-        r.removeFromTop (2);
+        r.removeFromTop (kRowGap);
         s.gain.setBounds (r.removeFromLeft (r.getWidth() / 2));
         // remaining right half of r = VU meter, painted in paint()
     }
@@ -291,8 +292,8 @@ void MixerView::paint (juce::Graphics& g)
         g.drawRect (area);
 
         // VU: right half of the fader zone
-        auto r = area.reduced (4);
-        r.removeFromTop (18 + 22 + 2 + (20 + 2) * HostEngine::kMaxInserts + 22 + 2);
+        auto r = area.reduced (kStripPad);
+        r.removeFromTop (kFaderTop);
         auto vuArea = r.removeFromRight (r.getWidth() / 2).reduced (8, 4);
 
         g.setColour (RV::gridBar);

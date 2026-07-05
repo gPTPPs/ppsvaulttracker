@@ -84,18 +84,43 @@ public:
         return f.isBold() ? orbitronBold : orbitron;
     }
 
+    // sober button: flat panel, 1 px border, hover = lifted border. Toggled
+    // state = slightly lifted fill + a thin accent bar along the bottom (the
+    // per-button buttonOnColourId), instead of a loud solid fill.
     void drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&,
                                bool highlighted, bool down) override
     {
+        // inc/dec buttons inside a value pill: no chrome of their own, just a
+        // subtle tint on interaction (the pill draws the shared border)
+        if (dynamic_cast<juce::Slider*> (b.getParentComponent()) != nullptr)
+        {
+            if (down || highlighted)
+            {
+                g.setColour (RV::cyan.withAlpha (down ? 0.18f : 0.08f));
+                g.fillRoundedRectangle (b.getLocalBounds().toFloat().reduced (1.0f), 2.0f);
+            }
+            return;
+        }
+
         auto r = b.getLocalBounds().toFloat().reduced (0.5f);
-        auto base = b.getToggleState() ? findColour (juce::TextButton::buttonOnColourId) : RV::panel;
-        if (down)             base = base.brighter (0.2f);
-        else if (highlighted) base = base.brighter (0.08f);
+        const bool on = b.getToggleState();
+
+        auto base = RV::panel;
+        if (on)               base = base.brighter (0.13f);
+        if (down)             base = base.brighter (0.18f);
+        else if (highlighted) base = base.brighter (0.07f);
 
         g.setColour (base);
-        g.fillRoundedRectangle (r, 4.0f);
-        g.setColour (b.getToggleState() ? RV::magenta : (highlighted ? RV::cyan : RV::panelLine));
-        g.drawRoundedRectangle (r, 4.0f, 1.0f);
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (highlighted ? RV::panelLine.brighter (0.6f) : RV::panelLine);
+        g.drawRoundedRectangle (r, 3.0f, 1.0f);
+
+        if (on)
+        {
+            g.setColour (b.findColour (juce::TextButton::buttonOnColourId));
+            g.fillRoundedRectangle (r.getX() + 5.0f, r.getBottom() - 3.5f,
+                                    r.getWidth() - 10.0f, 2.0f, 1.0f);
+        }
     }
 
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h,

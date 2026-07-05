@@ -26,6 +26,15 @@ private:
     static constexpr int kNumStrips = HostEngine::kMixChannels + 1;   // + master
     static constexpr int kMaster = HostEngine::kMixChannels;
 
+    // strip innards: uniform breathing room; kFaderTop = everything above the
+    // fader/VU zone (title, inst, FX slots, M/S/CC) — keep resized() and the
+    // VU maths in paint() in sync
+    static constexpr int kStripPad = 5;
+    static constexpr int kRowGap   = 4;
+    static constexpr int kFaderTop = 18 + kRowGap + 22 + kRowGap
+                                   + (20 + kRowGap) * HostEngine::kMaxInserts
+                                   + 22 + kRowGap;
+
     struct StripUi
     {
         juce::Label title;

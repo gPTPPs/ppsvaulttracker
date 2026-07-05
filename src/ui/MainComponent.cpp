@@ -1,6 +1,7 @@
 #include "ui/MainComponent.h"
 #include "AppVersion.h"
 #include "io/ModImport.h"
+#include "ui/RVLookAndFeel.h"
 #include "ui/TrackStyle.h"
 
 MainComponent::MainComponent()
@@ -30,40 +31,69 @@ MainComponent::MainComponent()
     if (! ModImport::isAvailable())
         importBtn.setTooltip ("Built without libopenmpt");
 
-    // ---- transport ----
-    for (auto* b : { &playBtn, &stopBtn })
+    // ---- transport: one button, Play at rest -> Stop (lit) while playing;
+    // the label tracks the real sequencer state from timerCallback, so the
+    // space bar and natural stops stay in sync
+    playBtn.setWantsKeyboardFocus (false);
+    playBtn.setColour (juce::TextButton::buttonOnColourId, RV::cyan);
+    playBtn.setColour (juce::TextButton::textColourOnId, RV::cyan);
+    playBtn.onClick = [this]
     {
-        b->setWantsKeyboardFocus (false);
-        addAndMakeVisible (b);
-    }
-    playBtn.onClick = [this] { engine.startPlayback(); patternEditor.grabKeyboardFocus(); };
-    stopBtn.onClick = [this] { engine.stopPlayback(); patternEditor.grabKeyboardFocus(); };
+        if (engine.getSequencer().isPlaying())
+            engine.stopPlayback();
+        else
+            engine.startPlayback();
+        patternEditor.grabKeyboardFocus();
+    };
+    addAndMakeVisible (playBtn);
 
-    auto setupToggle = [this] (juce::TextButton& b, bool initial, std::function<void (bool)> apply)
+    // on/off toggles read as state, not as buttons: accent bar + text when on
+    auto setupToggle = [this] (juce::TextButton& b, bool initial, juce::Colour accent,
+                               std::function<void (bool)> apply)
     {
         b.setClickingTogglesState (true);
         b.setToggleState (initial, juce::dontSendNotification);
-        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffb03060));
+        b.setColour (juce::TextButton::buttonOnColourId, accent);
+        b.setColour (juce::TextButton::textColourOnId, accent);
         b.setWantsKeyboardFocus (false);
         b.onClick = [this, &b, apply] { apply (b.getToggleState()); patternEditor.grabKeyboardFocus(); };
         addAndMakeVisible (b);
     };
-    setupToggle (recBtn,      false, [this] (bool on) { patternEditor.recEnabled = on;
-                                                        engine.setLiveRecording (on); });
-    setupToggle (followBtn,   true,  [this] (bool on) { patternEditor.followPlayhead = on; });
-    setupToggle (azertyBtn,   true,  [this] (bool on) { patternEditor.azertyLayout = on;
-                                                        azertyBtn.setButtonText (on ? "AZERTY" : "QWERTY"); });
-    setupToggle (songModeBtn, false, [this] (bool on) { engine.getSequencer().setSongMode (on); });
-    setupToggle (metroBtn,    false, [this] (bool on) { engine.setMetronome (on); });
-    setupToggle (precountBtn, false, [this] (bool on) { engine.setPrecountEnabled (on); });
-    setupToggle (keymapBtn,   false, [this] (bool on) { patternEditor.ptKeys = on;
-                                                        keymapBtn.setButtonText (on ? "PT" : "FT2"); });
+    const auto recRed = juce::Colour (0xffff5252);
+    setupToggle (recBtn,      false, recRed,   [this] (bool on) { patternEditor.recEnabled = on;
+                                                                  engine.setLiveRecording (on); });
+    setupToggle (followBtn,   true,  RV::cyan, [this] (bool on) { patternEditor.followPlayhead = on; });
+    setupToggle (metroBtn,    false, RV::cyan, [this] (bool on) { engine.setMetronome (on); });
+    setupToggle (precountBtn, false, RV::cyan, [this] (bool on) { engine.setPrecountEnabled (on); });
+
+    // mode selectors never light up: the label IS the state, a click cycles it
+    auto setupSelector = [this] (juce::TextButton& b, std::function<void()> cycle)
+    {
+        b.setWantsKeyboardFocus (false);
+        b.onClick = [this, cycle] { cycle(); patternEditor.grabKeyboardFocus(); };
+        addAndMakeVisible (b);
+    };
+    setupSelector (azertyBtn, [this]
+    {
+        patternEditor.azertyLayout = ! patternEditor.azertyLayout;
+        azertyBtn.setButtonText (patternEditor.azertyLayout ? "AZERTY" : "QWERTY");
+    });
+    setupSelector (keymapBtn, [this]
+    {
+        patternEditor.ptKeys = ! patternEditor.ptKeys;
+        keymapBtn.setButtonText (patternEditor.ptKeys ? "PT" : "FT2");
+    });
+    setupSelector (songModeBtn, [this]
+    {
+        auto& seq = engine.getSequencer();
+        seq.setSongMode (! seq.isSongMode());
+        songModeBtn.setButtonText (seq.isSongMode() ? "Song" : "Pattern");
+    });
 
     auto setupIncDec = [this] (juce::Slider& s, double min, double max, double value,
                                std::function<void (double)> apply)
     {
-        s.setSliderStyle (juce::Slider::IncDecButtons);
-        s.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 22);
+        s.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 30);   // full pill height
         s.setRange (min, max, 1.0);
         s.setValue (value, juce::dontSendNotification);
         s.setWantsKeyboardFocus (false);
@@ -112,8 +142,11 @@ MainComponent::MainComponent()
     for (auto* l : { &bpmLabel, &speedLabel, &stepLabel, &octaveLabel, &chanLabel, &patLabel, &orderLabel })
     {
         l->setJustificationType (juce::Justification::centredRight);
+        l->setColour (juce::Label::textColourId, RV::textDim);
+        l->setFont (juce::Font (juce::FontOptions (12.0f)));
         addAndMakeVisible (l);
     }
+    statusLabel.setColour (juce::Label::textColourId, RV::textDim);
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
@@ -193,6 +226,15 @@ MainComponent::~MainComponent()
 
 void MainComponent::timerCallback()
 {
+    // the transport button mirrors the real sequencer state (space bar,
+    // natural end of playback...)
+    const bool playing = engine.getSequencer().isPlaying();
+    if (playBtn.getToggleState() != playing)
+    {
+        playBtn.setToggleState (playing, juce::dontSendNotification);
+        playBtn.setButtonText (playing ? "Stop" : "Play");
+    }
+
     // keep the pattern selector in sync when the song playback moves it
     const int edited = engine.getSequencer().getEditPatternIndex();
     if ((int) patSlider.getValue() != edited)
@@ -313,7 +355,7 @@ void MainComponent::syncFromEngine()
         ord.add (juce::String (engine.getSong().order[i]));
     orderEdit.setText (ord.joinIntoString (" "), juce::dontSendNotification);
 
-    songModeBtn.setToggleState (seq.isSongMode(), juce::dontSendNotification);
+    songModeBtn.setButtonText (seq.isSongMode() ? "Song" : "Pattern");
     mixer.syncFromEngine();
     patternEditor.repaint();
     updateTitle();
@@ -532,59 +574,75 @@ void MainComponent::updateTitle()
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    g.setColour (RV::panelLine);
+    for (const auto& s : toolbarSeparators)
+        g.fillRect (s);
 }
 
 void MainComponent::resized()
 {
+    toolbarSeparators.clear();
     auto area = getLocalBounds().reduced (10);
 
-    auto bar = area.removeFromTop (32);
-    auto placeBar = [&bar] (juce::Component& c, int w)
-    {
-        c.setBounds (bar.removeFromLeft (w));
-        bar.removeFromLeft (8);
-    };
-    placeBar (audioBtn, 110);
-    placeBar (newBtn, 64);
-    placeBar (openBtn, 84);
-    placeBar (saveBtn, 70);
-    placeBar (saveAsBtn, 96);
-    placeBar (exportBtn, 90);
-    placeBar (importBtn, 90);
-
-    area.removeFromTop (6);
-    auto transport = area.removeFromTop (30);
     auto place = [] (juce::Rectangle<int>& row, juce::Component& c, int w, int gapAfter = 8)
     {
         c.setBounds (row.removeFromLeft (w));
         row.removeFromLeft (gapAfter);
     };
-    place (transport, playBtn, 70);
-    place (transport, stopBtn, 70, 14);
+    // group boundary: thin vertical line with breathing room on both sides
+    auto sep = [this] (juce::Rectangle<int>& row)
+    {
+        row.removeFromLeft (6);
+        toolbarSeparators.add (row.removeFromLeft (1).reduced (0, 5));
+        row.removeFromLeft (13);
+    };
+
+    // row 1 — project: file ops | export/import | settings (right)
+    auto bar = area.removeFromTop (30);
+    place (bar, newBtn, 64);
+    place (bar, openBtn, 84);
+    place (bar, saveBtn, 70);
+    place (bar, saveAsBtn, 96);
+    sep (bar);
+    place (bar, exportBtn, 90);
+    place (bar, importBtn, 90);
+    audioBtn.setBounds (bar.removeFromRight (110));
+
+    // row 2 — playback: transport | what plays | tempo | click
+    area.removeFromTop (6);
+    auto transport = area.removeFromTop (30);
+    place (transport, playBtn, 84);
     place (transport, recBtn, 56);
+    sep (transport);
+    place (transport, songModeBtn, 96);
     place (transport, followBtn, 72);
-    place (transport, azertyBtn, 80, 14);
+    sep (transport);
     place (transport, bpmLabel, 38, 2);
     place (transport, bpmSlider, 96, 10);
     place (transport, speedLabel, 48, 2);
-    place (transport, speedSlider, 96, 10);
-    place (transport, stepLabel, 46, 2);
-    place (transport, stepSlider, 96, 10);
-    place (transport, octaveLabel, 46, 2);
-    place (transport, octaveSlider, 96, 10);
-    place (transport, chanLabel, 40, 2);
-    place (transport, chanSlider, 96);
+    place (transport, speedSlider, 96);
+    sep (transport);
+    place (transport, metroBtn, 70);
+    place (transport, precountBtn, 56);
 
+    // row 3 — editing: entry settings | keymaps | song structure (pattern + order)
     area.removeFromTop (6);
     auto songRow = area.removeFromTop (30);
-    place (songRow, songModeBtn, 96, 10);
-    place (songRow, metroBtn, 70, 8);
-    place (songRow, precountBtn, 56, 8);
-    place (songRow, keymapBtn, 56, 14);
-    place (songRow, patLabel, 56, 2);
+    place (songRow, stepLabel, 46, 2);
+    place (songRow, stepSlider, 96, 10);
+    place (songRow, octaveLabel, 46, 2);
+    place (songRow, octaveSlider, 96, 10);
+    place (songRow, chanLabel, 40, 2);
+    place (songRow, chanSlider, 96);
+    sep (songRow);
+    place (songRow, azertyBtn, 80);
+    place (songRow, keymapBtn, 56);
+    sep (songRow);
+    place (songRow, patLabel, 40, 2);
     place (songRow, patSlider, 96, 10);
-    place (songRow, addPatBtn, 100, 14);
-    place (songRow, orderLabel, 46, 2);
+    place (songRow, addPatBtn, 100);
+    sep (songRow);
+    place (songRow, orderLabel, 52, 2);
     orderApplyBtn.setBounds (songRow.removeFromRight (84));
     songRow.removeFromRight (8);
     orderEdit.setBounds (songRow);

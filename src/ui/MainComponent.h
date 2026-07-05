@@ -3,6 +3,7 @@
 #include "engine/HostEngine.h"
 #include "ui/PatternEditor.h"
 #include "ui/MixerView.h"
+#include "ui/PillSlider.h"
 
 // Floating window hosting a plugin's own editor (or a generic one).
 class PluginWindow : public juce::DocumentWindow
@@ -85,20 +86,22 @@ private:
     void markStateSaved()    { savedStateJson = engine.getStateAsJson(); }
 
     // transport + edit controls
-    juce::TextButton playBtn { "Play" }, stopBtn { "Stop" };
+    juce::TextButton playBtn { "Play" };   // single transport button: Play <-> Stop
     juce::TextButton recBtn { "Rec" }, followBtn { "Follow" }, azertyBtn { "AZERTY" };
     juce::TextButton metroBtn { "Metro" }, precountBtn { "Pre" }, keymapBtn { "FT2" };
-    juce::Slider bpmSlider, speedSlider, stepSlider, octaveSlider, chanSlider;
+    PillSlider bpmSlider, speedSlider, stepSlider, octaveSlider, chanSlider;
     juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" },
                 stepLabel { {}, "Step" }, octaveLabel { {}, "Oct" }, chanLabel { {}, "Ch" };
 
     // song / order controls
-    juce::TextButton songModeBtn { "Song Mode" }, addPatBtn { "Add Pattern" }, orderApplyBtn { "Set Order" };
-    juce::Slider patSlider;
-    juce::Label patLabel { {}, "Pattern" }, orderLabel { {}, "Order" };
+    juce::TextButton songModeBtn { "Pattern" },   // mode selector: label = current mode
+                     addPatBtn { "Add Pattern" }, orderApplyBtn { "Set Order" };
+    PillSlider patSlider;
+    juce::Label patLabel { {}, "Pat" }, orderLabel { {}, "Order" };   // "Pat" like the status bar
     juce::TextEditor orderEdit;
 
     juce::Label statusLabel;
+    juce::Array<juce::Rectangle<int>> toolbarSeparators;   // computed in resized(), drawn in paint()
     PatternEditor patternEditor { engine };
     MixerView mixer { engine, [this] (juce::AudioPluginInstance* p) { showEditorFor (p); } };
     juce::Viewport mixerViewport;   // 17 strips don't fit: horizontal scroll
