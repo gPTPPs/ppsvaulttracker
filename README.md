@@ -35,6 +35,18 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
   bass, pads… — the VSTi, inserts, mixer settings, CC slots and pattern
   data all move together, even during playback. Custom names become the
   track names in the MIDI export (visible when importing into Ableton)
+- **Arrangement view** (`F12`) — the order list as a horizontal timeline:
+  one block per entry with the pattern's name and a per-track note-density
+  mini-map in the track colours. Drag to reorder (Ctrl+drag duplicates),
+  right-click to insert/duplicate/remove/rename patterns, click a track
+  lane to **mute that track for that block** (the arrangement matrix —
+  ideal for intro/breakdown variants of the same pattern), and playback
+  starts from the selected block
+- **CC lane** — a drawable curve editor over the effect column: pick a
+  track and a CC slot (or pitch bend) and draw your sweeps with the mouse
+  instead of typing hex. Both views edit the same data, strokes are
+  undoable in the grid, and drawing sends the CC live to the plugin — so
+  its MIDI Learn catches the controller instantly
 - **Projects** — human-readable `.ubt` folder format (JSON + plugin
   states) with rotating autosave backups
 - **Export for the studio** — multitrack MIDI (SMF type 1), per-channel
@@ -44,9 +56,13 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
   notes, no samples)
 - **RetroVault synthwave theme** — Orbitron, cyan/magenta on deep blue
 
-> ✨ **Status: v1.0.0-beta.** The engine and workflow are feature-complete.
+![Arrangement view](docs/arrangement.png)
+![CC lane](docs/cclane.png)
+
+> ✨ **Status: v1.1.0-beta.** The engine and workflow are feature-complete.
 > On the roadmap for later releases: a bundled demo song, the OUTRUN/LATENT
-> visualizers from the RetroVault MOD player, and UI refinements.
+> visualizers from the RetroVault MOD player, CC ramp interpolation, and
+> host-parameter automation for MIDI-less FX plugins.
 
 ## Download
 
