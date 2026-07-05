@@ -29,6 +29,12 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
   pitch bend, `Nxx` note delay and `Kxx` note cut in ticks. No internal DSP:
   automation is portable, it exports as plain CC in the `.mid`
 - **Mixer** — faders, mute/solo, VU meters per channel and master
+- **Track identity & reordering** — rename any track (double-click its
+  header or mixer title), give it one of 8 neon accent colours, and move
+  tracks left/right (right-click menu or `Ctrl+Shift+←/→`) to group drums,
+  bass, pads… — the VSTi, inserts, mixer settings, CC slots and pattern
+  data all move together, even during playback. Custom names become the
+  track names in the MIDI export (visible when importing into Ableton)
 - **Projects** — human-readable `.ubt` folder format (JSON + plugin
   states) with rotating autosave backups
 - **Export for the studio** — multitrack MIDI (SMF type 1), per-channel
