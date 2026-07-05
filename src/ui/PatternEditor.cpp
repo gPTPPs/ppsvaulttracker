@@ -318,6 +318,16 @@ bool PatternEditor::keyPressed (const juce::KeyPress& kp)
 
     // ---- navigation ----
     const bool shift = mods.isShiftDown();
+
+    // Ctrl+Shift+Left/Right = move the cursor's track (full swap with its
+    // neighbour) — checked before plain arrow navigation
+    if (mods.isCtrlDown() && shift
+        && (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey))
+    {
+        moveTrack (cursorChannel, code == juce::KeyPress::leftKey ? -1 : 1);
+        return true;
+    }
+
     if (code == juce::KeyPress::upKey)       { moveCursor (-1, 0, shift); return true; }
     if (code == juce::KeyPress::downKey)     { moveCursor ( 1, 0, shift); return true; }
     if (code == juce::KeyPress::leftKey)     { moveCursor (0, -1, shift); return true; }
@@ -429,9 +439,10 @@ void PatternEditor::mouseDown (const juce::MouseEvent& e)
     {
         const int ch = headerChannelAt (e.x);
         if (ch >= 0 && e.mods.isPopupMenu())
-            TrackStyle::showColourMenu (engine.getSong(), ch,
+            TrackStyle::showTrackMenu (engine.getSong(), ch, trackCount(),
                 juce::PopupMenu::Options().withTargetScreenArea (
                     localAreaToGlobal (headerCellBounds (ch))),
+                [this, ch] (int delta) { moveTrack (ch, delta); },
                 [this] { repaint(); });
         return;
     }
@@ -477,13 +488,37 @@ void PatternEditor::mouseDoubleClick (const juce::MouseEvent& e)
         beginNameEdit (ch);
 }
 
-int PatternEditor::headerChannelAt (int x) const
+int PatternEditor::trackCount() const
 {
     auto* p = pattern();
-    if (p == nullptr || x < kRowNumW)
+    return p != nullptr ? juce::jmin (p->getNumChannels(), Song::kCcTracks) : 0;
+}
+
+int PatternEditor::headerChannelAt (int x) const
+{
+    if (x < kRowNumW)
         return -1;
     const int ch = firstChannel + (x - kRowNumW) / (kChanW + kChanGap);
-    return ch < juce::jmin (p->getNumChannels(), Song::kCcTracks) ? ch : -1;
+    return ch < trackCount() ? ch : -1;
+}
+
+void PatternEditor::moveTrack (int ch, int delta)
+{
+    const int to = ch + delta;
+    if (ch < 0 || to < 0 || ch >= trackCount() || to >= trackCount())
+        return;
+
+    endNameEdit (true);
+    engine.swapChannels (ch, to);   // fires onTrackLayoutChanged (mixer refresh)
+
+    // the cursor sticks to the musical content it was on
+    const int prev = cursorChannel;
+    if (cursorChannel == ch)      cursorChannel = to;
+    else if (cursorChannel == to) cursorChannel = ch;
+    hasSelection = false;
+    ensureCursorVisible();
+    notifyChannelChange (prev);
+    repaint();
 }
 
 juce::Rectangle<int> PatternEditor::headerCellBounds (int ch) const

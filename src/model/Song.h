@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <utility>
 #include "model/EffectCommands.h"
 #include "model/Pattern.h"
 
@@ -55,6 +56,23 @@ public:
             return -1;
         patterns[numPatterns] = std::make_unique<Pattern> (rows, numChannels);
         return numPatterns++;
+    }
+
+    // swap two tracks across the whole song: every pattern column (all rows,
+    // including rows hidden by a smaller numRows), CC slots, name and colour.
+    // Cells swap one by one while the audio thread may be reading — same
+    // benign race as live cell editing.
+    void swapTracks (int a, int b)
+    {
+        if (a == b || a < 0 || b < 0 || a >= kCcTracks || b >= kCcTracks)
+            return;
+        for (int i = 0; i < numPatterns; ++i)
+            for (int r = 0; r < Pattern::kMaxRows; ++r)
+                std::swap (patterns[i]->at (r, a), patterns[i]->at (r, b));
+        for (int s = 0; s < FxCmd::kNumSlots; ++s)
+            std::swap (ccSlots[a][s], ccSlots[b][s]);
+        std::swap (trackNames[a], trackNames[b]);
+        std::swap (trackColors[a], trackColors[b]);
     }
 
     int getNumChannels() const { return numChannels; }

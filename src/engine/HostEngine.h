@@ -74,6 +74,10 @@ public:
     int  addPattern();                                                     // -1 when full
     void applyOrder (const int* entries, int count);
     void setNumChannels (int n);
+    void swapChannels (int a, int b);   // full track swap: song data + plugins + mixer state
+
+    // fired after swapChannels so every view refreshes, whoever initiated it
+    std::function<void()> onTrackLayoutChanged;
 
     // ---- mixer (lock-free) ----
     void  setChannelGain (int ch, float g);

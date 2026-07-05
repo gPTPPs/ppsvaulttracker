@@ -137,6 +137,13 @@ MainComponent::MainComponent()
         engine.setLiveChannel (ch);
         keyboard.setMidiChannel (ch + 1);
     };
+
+    // track moves (from either the grid or the mixer) refresh both views
+    engine.onTrackLayoutChanged = [this]
+    {
+        mixer.syncFromEngine();
+        patternEditor.repaint();
+    };
     keyboard.setMidiChannel (1);
 
     refreshStatus();

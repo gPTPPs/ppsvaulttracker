@@ -158,12 +158,54 @@ static void testClockOffsetsInsideBuffer()
     CHECK (ok);
 }
 
+static void testSwapTracks()
+{
+    Song s;
+    s.setNumChannels (3);
+    const int p1 = s.addPattern (32);
+
+    s.getPattern (0)->at (0, 0) = { 60, 1, 64, 0, 0 };
+    s.getPattern (0)->at (5, 2) = { 45, 2, 32, 3, 0x40 };
+    s.getPattern (p1)->at (31, 0) = { 72, 1, 10, 0, 0 };
+    // row hidden by p1's 32-row length must swap too
+    s.getPattern (p1)->at (100, 0) = { 50, 1, 20, 0, 0 };
+
+    s.ccSlots[0][0] = 21;
+    s.trackNames[0] = "Kick";
+    s.trackColors[0] = 0xff00e5ffu;
+    s.trackNames[2] = "Pad";
+
+    s.swapTracks (0, 2);
+
+    CHECK (s.getPattern (0)->at (0, 2).note == 60);            // cells moved 0 -> 2
+    CHECK (s.getPattern (0)->at (0, 0) == Cell());
+    CHECK (s.getPattern (0)->at (5, 0).note == 45);            // ...and 2 -> 0
+    CHECK (s.getPattern (0)->at (5, 2) == Cell());
+    CHECK (s.getPattern (p1)->at (31, 2).note == 72);          // every pattern
+    CHECK (s.getPattern (p1)->at (100, 2).note == 50);         // hidden rows too
+    CHECK (s.ccSlots[2][0] == 21 && s.ccSlots[0][0] == 74);    // CC slots follow
+    CHECK (s.trackNames[2] == "Kick" && s.trackNames[0] == "Pad");
+    CHECK (s.trackColors[2] == 0xff00e5ffu && s.trackColors[0] == 0);
+
+    // swapping back restores everything (self-inverse)
+    s.swapTracks (2, 0);
+    CHECK (s.getPattern (0)->at (0, 0).note == 60);
+    CHECK (s.trackNames[0] == "Kick" && s.trackColors[0] == 0xff00e5ffu);
+
+    // no-ops: same index, out of range
+    s.swapTracks (1, 1);
+    s.swapTracks (0, -1);
+    s.swapTracks (0, Song::kCcTracks);
+    CHECK (s.getPattern (0)->at (0, 0).note == 60);
+}
+
 int main()
 {
     testCell();
     testPattern();
     testFxCommands();
     testCcSlotTable();
+    testSwapTracks();
     testClockMath();
     testClockAdvance();
     testClockLoop();

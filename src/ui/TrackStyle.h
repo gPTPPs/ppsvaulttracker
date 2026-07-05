@@ -39,10 +39,13 @@ namespace TrackStyle
         return track >= 0 && track < Song::kCcTracks && s.trackColors[track] != 0;
     }
 
-    // swatch menu (8 palette entries + Default); writes into the Song and
-    // calls onChanged afterwards
-    inline void showColourMenu (Song& song, int track, const juce::PopupMenu::Options& options,
-                                std::function<void()> onChanged)
+    // track context menu: 8 colour swatches + Default, then Move left/right.
+    // Colours write straight into the Song (then onChanged); moves are the
+    // caller's job (onMove with delta -1/+1 — typically engine.swapChannels).
+    inline void showTrackMenu (Song& song, int track, int numTracks,
+                               const juce::PopupMenu::Options& options,
+                               std::function<void (int)> onMove,
+                               std::function<void()> onChanged)
     {
         if (track < 0 || track >= Song::kCcTracks)
             return;
@@ -53,11 +56,22 @@ namespace TrackStyle
                                true, song.trackColors[track] == kPalette[i].argb);
         m.addSeparator();
         m.addItem (100, "Default", true, song.trackColors[track] == 0);
+        m.addSeparator();
+        m.addItem (200, "Move left",  track > 0);
+        m.addItem (201, "Move right", track < numTracks - 1);
 
-        m.showMenuAsync (options, [&song, track, onChanged = std::move (onChanged)] (int r)
+        m.showMenuAsync (options, [&song, track,
+                                   onMove = std::move (onMove),
+                                   onChanged = std::move (onChanged)] (int r)
         {
             if (r == 0)
                 return;
+            if (r == 200 || r == 201)
+            {
+                if (onMove)
+                    onMove (r == 200 ? -1 : 1);
+                return;
+            }
             song.trackColors[track] = r == 100 ? 0 : kPalette[r - 1].argb;
             if (onChanged)
                 onChanged();

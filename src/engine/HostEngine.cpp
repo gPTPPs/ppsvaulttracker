@@ -250,6 +250,41 @@ void HostEngine::setNumChannels (int n)
     song.setNumChannels (juce::jlimit (1, kMixChannels, n));
 }
 
+void HostEngine::swapChannels (int a, int b)
+{
+    if (a == b || a < 0 || b < 0 || a >= kMixChannels || b >= kMixChannels)
+        return;
+
+    ScopedDetach detach (*this);
+    song.swapTracks (a, b);
+
+    // the routers and strips stay at their mix positions (router N filters
+    // MIDI channel N+1) — what moves is their content: plugins and settings
+    auto& sa = slots[a];
+    auto& sb = slots[b];
+    std::swap (sa.instrument, sb.instrument);
+    std::swap (sa.instrumentName, sb.instrumentName);
+    std::swap (sa.instrumentDesc, sb.instrumentDesc);
+    for (int i = 0; i < kMaxInserts; ++i)
+    {
+        std::swap (sa.inserts[i], sb.inserts[i]);
+        std::swap (sa.insertNames[i], sb.insertNames[i]);
+        std::swap (sa.insertDescs[i], sb.insertDescs[i]);
+    }
+
+    const float ga = getChannelGain (a);
+    setChannelGain (a, getChannelGain (b));
+    setChannelGain (b, ga);
+    std::swap (mutes[a], mutes[b]);
+    std::swap (solos[a], solos[b]);
+
+    rebuildConnections();
+    updateMuteStates();
+
+    if (onTrackLayoutChanged)
+        onTrackLayoutChanged();
+}
+
 // ---------------------------------------------------------------- project I/O
 
 void HostEngine::unloadAllPluginsDetached()

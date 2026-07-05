@@ -58,11 +58,13 @@ private:
     PatternOps::Selection currentRegion() const;   // selection if active, else cursor cell
     int  noteForChar (juce::juce_wchar c) const;   // -1 if not a note key
 
-    // track identity (header double-click = rename, right-click = colour)
+    // track identity (header double-click = rename, right-click = menu)
+    int trackCount() const;                        // channels that can carry identity (≤16)
     int headerChannelAt (int x) const;             // -1 outside the header cells
     juce::Rectangle<int> headerCellBounds (int ch) const;
     void beginNameEdit (int ch);
     void endNameEdit (bool commit);
+    void moveTrack (int ch, int delta);            // full swap with the neighbour track
 
     // geometry (horizontal metrics shared with the mixer)
     static constexpr int kRowH = 18;

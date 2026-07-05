@@ -182,8 +182,14 @@ void MixerView::mouseDown (const juce::MouseEvent& e)
     for (int i = 0; i < kNumStrips; ++i)
         if (i != kMaster && e.originalComponent == &strips[i].title)
         {
-            TrackStyle::showColourMenu (engine.getSong(), i,
+            TrackStyle::showTrackMenu (engine.getSong(), i, activeChannels(),
                 juce::PopupMenu::Options().withTargetComponent (&strips[i].title),
+                [this, i] (int delta)
+                {
+                    const int to = i + delta;
+                    if (to >= 0 && to < activeChannels())
+                        engine.swapChannels (i, to);   // fires onTrackLayoutChanged
+                },
                 [this] { refreshTrackTitles(); });
             return;
         }
