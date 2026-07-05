@@ -37,6 +37,11 @@ public:
 
     void setSongMode (bool s)        { songMode.store (s); }
     bool isSongMode() const          { return songMode.load(); }
+
+    // song-mode playback starts at this order position (arrangement view
+    // selection); clamped against the current order length at play time
+    void setStartOrderPos (int pos)  { startOrderPos.store (pos); }
+    int  getStartOrderPos() const    { return startOrderPos.load(); }
     void setEditPatternIndex (int i) { editPatternIdx.store (i); }
     int  getEditPatternIndex() const { return editPatternIdx.load(); }
 
@@ -83,6 +88,7 @@ private:
     std::atomic<double> bpmAtomic { 125.0 };
     std::atomic<int>    speedAtomic { 6 };
     std::atomic<int>    editPatternIdx { 0 };
+    std::atomic<int>    startOrderPos { 0 };
     std::atomic<int>    uiRow { -1 };
     std::atomic<int>    uiPatternIdx { 0 };
     std::atomic<int>    uiOrderPos { -1 };

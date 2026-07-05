@@ -44,6 +44,16 @@ int ArrangementView::currentIdealWidth() const
                             : blocks.getLast().x + blocks.getLast().w + kMargin;
 }
 
+int ArrangementView::trackCount() const
+{
+    return juce::jmin (engine.getSong().getNumChannels(), Song::kCcTracks);
+}
+
+int ArrangementView::blockHeight() const
+{
+    return juce::jmin (getHeight() - 2 * kMargin, kHeaderH + 8 + trackCount() * kLaneH + 10);
+}
+
 int ArrangementView::entryAt (int x) const
 {
     const auto blocks = computeBlocks();
@@ -51,6 +61,46 @@ int ArrangementView::entryAt (int x) const
         if (x >= blocks[i].x && x < blocks[i].x + blocks[i].w)
             return i;
     return -1;
+}
+
+int ArrangementView::laneAt (int entry, juce::Point<int> pos) const
+{
+    const auto blocks = computeBlocks();
+    if (entry < 0 || entry >= blocks.size())
+        return -1;
+    const juce::Rectangle<int> r (blocks[entry].x, kMargin, blocks[entry].w, blockHeight());
+    const auto body = r.reduced (8).withTrimmedTop (kHeaderH);
+    if (! body.contains (pos))
+        return -1;
+    const int lane = (pos.y - body.getY()) / kLaneH;
+    return lane >= 0 && lane < trackCount() ? lane : -1;
+}
+
+void ArrangementView::setSelected (int s)
+{
+    selected = juce::jlimit (0, juce::jmax (0, engine.getSong().orderLen - 1), s);
+    // Play starts from the selected block (PPs feedback, session 2)
+    engine.getSequencer().setStartOrderPos (selected);
+}
+
+void ArrangementView::resetSelection()
+{
+    setSelected (0);
+    repaint();
+}
+
+juce::Array<ArrangementView::Entry> ArrangementView::snapshotOrder() const
+{
+    const auto& song = engine.getSong();
+    juce::Array<Entry> entries;
+    for (int i = 0; i < song.orderLen; ++i)
+    {
+        Entry e { song.order[i], {} };
+        for (int t = 0; t < Song::kCcTracks; ++t)
+            e.mutes[t] = song.orderMutes[i][t];
+        entries.add (e);
+    }
+    return entries;
 }
 
 int ArrangementView::insertionIndexAt (int x) const
@@ -79,15 +129,13 @@ void ArrangementView::paint (juce::Graphics& g)
     const auto& song = engine.getSong();
     auto& seq = engine.getSequencer();
     const auto blocks = computeBlocks();
-    const bool songPlaying = seq.isPlaying() && seq.isSongMode();
+    const bool playing = seq.isPlaying();
+    const bool songPlaying = playing && seq.isSongMode();
     const int playPos = seq.getUiOrderPos();
+    const int playPat = seq.getUiPatternIndex();
     const int tracks = song.getNumChannels();
 
-    // fixed-height lanes, compact blocks: the block hugs its content instead
-    // of stretching to the view height
-    constexpr int kLaneH = 14;
-    const int blockH = juce::jmin (getHeight() - 2 * kMargin,
-                                   kHeaderH + 8 + tracks * kLaneH + 10);
+    const int blockH = blockHeight();
 
     for (int i = 0; i < blocks.size(); ++i)
     {
@@ -98,7 +146,10 @@ void ArrangementView::paint (juce::Graphics& g)
 
         const juce::Rectangle<int> r (b.x, kMargin, b.w, blockH);
         const bool isSel = i == selected;
-        const bool isPlayingHere = songPlaying && playPos == i;
+        // song mode: the block at the playing order position; pattern mode:
+        // every block carrying the looping pattern (it IS what's playing)
+        const bool isPlayingHere = songPlaying ? playPos == i
+                                               : playing && b.patIdx == playPat;
 
         g.setColour (RV::panel.brighter (isSel ? 0.10f : 0.0f));
         g.fillRoundedRectangle (r.toFloat(), 4.0f);
@@ -126,11 +177,13 @@ void ArrangementView::paint (juce::Graphics& g)
 
             for (int t = 0; t < tracks; ++t)
             {
-                const auto accent = TrackStyle::colourOr (song, t, RV::cyan);
+                const bool mutedLane = song.orderMuted (i, t);
+                const auto accent = mutedLane ? RV::textDim
+                                              : TrackStyle::colourOr (song, t, RV::cyan);
                 const float y = (float) body.getY() + (float) (kLaneH * t);
                 const float h = (float) kLaneH - 3.0f;
 
-                g.setColour (accent.withAlpha (0.07f));   // faint lane base
+                g.setColour (accent.withAlpha (mutedLane ? 0.05f : 0.07f));   // faint lane base
                 g.fillRect ((float) body.getX(), y, (float) body.getWidth(), h);
 
                 for (int s = 0; s < segs; ++s)
@@ -142,8 +195,16 @@ void ArrangementView::paint (juce::Graphics& g)
                             ++notes;
                     if (notes == 0)
                         continue;
-                    g.setColour (accent.withAlpha (0.30f + 0.65f * juce::jmin (1.0f, (float) notes / 4.0f)));
+                    g.setColour (accent.withAlpha (mutedLane
+                                     ? 0.15f
+                                     : 0.30f + 0.65f * juce::jmin (1.0f, (float) notes / 4.0f)));
                     g.fillRect ((float) body.getX() + segW * (float) s, y, juce::jmax (2.0f, segW - 1.0f), h);
+                }
+
+                if (mutedLane)   // strike-through: reads as "off" at a glance
+                {
+                    g.setColour (RV::textDim.withAlpha (0.65f));
+                    g.fillRect ((float) body.getX(), y + h * 0.5f, (float) body.getWidth(), 1.0f);
                 }
             }
         }
@@ -177,7 +238,8 @@ void ArrangementView::paint (juce::Graphics& g)
 void ArrangementView::timerCallback()
 {
     const auto& song = engine.getSong();
-    selected = juce::jlimit (0, juce::jmax (0, song.orderLen - 1), selected);
+    if (selected >= song.orderLen)
+        setSelected (song.orderLen - 1);
 
     const int w = juce::jmax (currentIdealWidth(), getParentWidth());
     if (getWidth() != w)
@@ -187,35 +249,41 @@ void ArrangementView::timerCallback()
 
 // ---------------------------------------------------------------- editing
 
-void ArrangementView::applyNewOrder (const juce::Array<int>& entries, int newSelected)
+void ArrangementView::applyEntries (const juce::Array<Entry>& entries, int newSelected)
 {
-    engine.applyOrder (entries.data(), entries.size());
-    selected = juce::jlimit (0, juce::jmax (0, entries.size() - 1), newSelected);
+    auto& song = engine.getSong();
+    const int count = juce::jmin (entries.size(), Song::kMaxOrder);
+
+    // mute rows first (single-byte writes, benign), then the atomic order swap
+    for (int i = 0; i < count; ++i)
+        for (int t = 0; t < Song::kCcTracks; ++t)
+            song.orderMutes[i][t] = entries[i].mutes[t];
+
+    juce::Array<int> pats;
+    for (int i = 0; i < count; ++i)
+        pats.add (entries[i].pat);
+    engine.applyOrder (pats.data(), pats.size());
+
+    setSelected (newSelected);
     repaint();
 }
 
 void ArrangementView::insertEntryAfter (int entry, int patIdx)
 {
-    const auto& song = engine.getSong();
-    if (song.orderLen >= Song::kMaxOrder)
+    if (engine.getSong().orderLen >= Song::kMaxOrder)
         return;
-    juce::Array<int> entries;
-    for (int i = 0; i < song.orderLen; ++i)
-        entries.add (song.order[i]);
-    entries.insert (entry + 1, patIdx);
-    applyNewOrder (entries, entry + 1);
+    auto entries = snapshotOrder();
+    entries.insert (entry + 1, Entry { patIdx, {} });
+    applyEntries (entries, entry + 1);
 }
 
 void ArrangementView::removeEntry (int entry)
 {
-    const auto& song = engine.getSong();
-    if (song.orderLen <= 1 || entry < 0 || entry >= song.orderLen)
+    if (engine.getSong().orderLen <= 1 || entry < 0 || entry >= engine.getSong().orderLen)
         return;
-    juce::Array<int> entries;
-    for (int i = 0; i < song.orderLen; ++i)
-        if (i != entry)
-            entries.add (song.order[i]);
-    applyNewOrder (entries, entry);
+    auto entries = snapshotOrder();
+    entries.remove (entry);
+    applyEntries (entries, entry);
 }
 
 // ---------------------------------------------------------------- mouse
@@ -230,7 +298,7 @@ void ArrangementView::mouseDown (const juce::MouseEvent& e)
     {
         if (entry >= 0)
         {
-            selected = entry;
+            setSelected (entry);
             repaint();
             showContextMenu (entry);
         }
@@ -239,9 +307,10 @@ void ArrangementView::mouseDown (const juce::MouseEvent& e)
 
     if (entry >= 0)
     {
-        selected = entry;
+        setSelected (entry);
         dragEntry = entry;
         dragging = false;
+        pressLane = laneAt (entry, e.getPosition());   // resolved on mouseUp
         engine.getSequencer().setEditPatternIndex (engine.getSong().order[entry]);
         repaint();
     }
@@ -264,32 +333,38 @@ void ArrangementView::mouseUp (const juce::MouseEvent& e)
 {
     if (dragging && dropIndex >= 0 && dragEntry >= 0)
     {
-        const auto& song = engine.getSong();
-        juce::Array<int> entries;
-        for (int i = 0; i < song.orderLen; ++i)
-            entries.add (song.order[i]);
+        auto entries = snapshotOrder();   // mutes travel with their entry
 
         if (e.mods.isCtrlDown())
         {
-            // duplicate the dragged entry at the drop point
+            // duplicate the dragged entry (mutes included) at the drop point
             if (entries.size() < Song::kMaxOrder)
             {
                 entries.insert (dropIndex, entries[dragEntry]);
-                applyNewOrder (entries, dropIndex);
+                applyEntries (entries, dropIndex);
             }
         }
         else
         {
-            const int value = entries[dragEntry];
+            const Entry moved = entries[dragEntry];
             entries.remove (dragEntry);
             const int target = dropIndex > dragEntry ? dropIndex - 1 : dropIndex;
-            entries.insert (target, value);
-            applyNewOrder (entries, target);
+            entries.insert (target, moved);
+            applyEntries (entries, target);
         }
+    }
+    else if (! dragging && dragEntry >= 0 && pressLane >= 0
+             && pressLane == laneAt (dragEntry, e.getPosition()))
+    {
+        // plain click on a track lane = toggle that track's mute in this block
+        auto& song = engine.getSong();
+        if (dragEntry < song.orderLen)
+            song.orderMutes[dragEntry][pressLane] = ! song.orderMutes[dragEntry][pressLane];
     }
     dragEntry = -1;
     dragging = false;
     dropIndex = -1;
+    pressLane = -1;
     repaint();
 }
 
@@ -298,7 +373,7 @@ void ArrangementView::mouseDoubleClick (const juce::MouseEvent& e)
     const int entry = entryAt (e.x);
     if (entry < 0 || e.mods.isPopupMenu())
         return;
-    selected = entry;
+    setSelected (entry);
     engine.getSequencer().setEditPatternIndex (engine.getSong().order[entry]);
     if (onOpenPattern)
         onOpenPattern();
@@ -314,8 +389,7 @@ bool ArrangementView::keyPressed (const juce::KeyPress& kp)
     }
     if (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey)
     {
-        selected = juce::jlimit (0, juce::jmax (0, engine.getSong().orderLen - 1),
-                                 selected + (code == juce::KeyPress::leftKey ? -1 : 1));
+        setSelected (selected + (code == juce::KeyPress::leftKey ? -1 : 1));
         engine.getSequencer().setEditPatternIndex (engine.getSong().order[selected]);
         repaint();
         return true;
@@ -351,8 +425,15 @@ void ArrangementView::showContextMenu (int entry)
         {
             if (r == 0)
                 return;
-            const auto& s = engine.getSong();
-            if (r == 1)       insertEntryAfter (entry, s.order[entry]);
+            if (r == 1)   // duplicate: mutes included
+            {
+                if (engine.getSong().orderLen < Song::kMaxOrder)
+                {
+                    auto entries = snapshotOrder();
+                    entries.insert (entry + 1, entries[entry]);
+                    applyEntries (entries, entry + 1);
+                }
+            }
             else if (r == 2)  removeEntry (entry);
             else if (r == 3)  beginRename (entry);
             else if (r == 999)

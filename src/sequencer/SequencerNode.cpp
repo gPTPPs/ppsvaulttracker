@@ -87,7 +87,9 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
     {
         clock.reset();
         firstRowPending = true;
-        curOrderPos = 0;
+        curOrderPos = song != nullptr
+                          ? juce::jlimit (0, juce::jmax (0, song->orderLen - 1), startOrderPos.load())
+                          : 0;
         precountLeft = precountRowsCfg.load();
         precountCounter = 0.0;
         numPendingMidi = 0;
@@ -135,7 +137,7 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
     }
 
     if (firstRowPending)
-        curPattern = songMode.load() ? clampPatternIndex (song->order[0])
+        curPattern = songMode.load() ? clampPatternIndex (song->order[curOrderPos])
                                      : clampPatternIndex (editPatternIdx.load());
 
     Pattern* pat = song->getPattern (curPattern);
@@ -169,6 +171,16 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
             {
                 curOrderPos = (curOrderPos + 1) % juce::jmax (1, song->orderLen);
                 curPattern = clampPatternIndex (song->order[curOrderPos]);
+
+                // entering a block: tracks muted here get their hanging note
+                // cut, so a sustained pad doesn't ring through its muted block
+                for (int ch = 0; ch < Pattern::kMaxChannels; ++ch)
+                    if (activeNotes[ch] != 0 && song->orderMuted (curOrderPos, ch))
+                    {
+                        midi.addEvent (juce::MidiMessage::noteOff (juce::jmin (16, ch + 1),
+                                                                   activeNotes[ch] - 1), offset);
+                        activeNotes[ch] = 0;
+                    }
             }
             else
             {
@@ -183,8 +195,13 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
 
         const int numChannels = juce::jmin (pat->getNumChannels(), 16);
         const int speedNow = juce::jmax (1, speedAtomic.load());
+        const bool inSongMode = songMode.load();
         for (int ch = 0; ch < numChannels; ++ch)
         {
+            // arrangement matrix: a muted track emits nothing in this block
+            if (inSongMode && song->orderMuted (curOrderPos, ch))
+                continue;
+
             const Cell c = pat->at (row, ch);   // by value: one coherent read
             const int midiCh = ch + 1;
             const uint8_t fx = FxCmd::sanitize (c.effect);

@@ -354,6 +354,7 @@ void MainComponent::syncFromEngine()
     seq.setEditPatternIndex (0);
 
     songModeBtn.setButtonText (seq.isSongMode() ? "Song" : "Pattern");
+    arrangement.resetSelection();   // new/loaded project plays from the top
     mixer.syncFromEngine();
     patternEditor.repaint();
     updateTitle();

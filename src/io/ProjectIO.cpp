@@ -44,6 +44,27 @@ juce::var ProjectIO::songToVar (const Song& s)
         ord.add (s.order[i]);
     root->setProperty ("order", juce::var (ord));
 
+    // arrangement matrix: one 16-bit mask per order entry, emitted only when
+    // at least one mute is set (older files stay byte-identical)
+    bool anyMute = false;
+    for (int i = 0; i < s.orderLen && ! anyMute; ++i)
+        for (int t = 0; t < Song::kCcTracks && ! anyMute; ++t)
+            anyMute = s.orderMutes[i][t];
+
+    if (anyMute)
+    {
+        juce::Array<juce::var> masks;
+        for (int i = 0; i < s.orderLen; ++i)
+        {
+            int mask = 0;
+            for (int t = 0; t < Song::kCcTracks; ++t)
+                if (s.orderMutes[i][t])
+                    mask |= 1 << t;
+            masks.add (mask);
+        }
+        root->setProperty ("orderMutes", juce::var (masks));
+    }
+
     juce::Array<juce::var> ccTable;
     for (int t = 0; t < Song::kCcTracks; ++t)
     {
@@ -166,6 +187,21 @@ juce::String ProjectIO::songFromVar (const juce::var& v, Song& out)
                 return "ccSlots: track " + juce::String (t) + " is not an array";
             for (int slot = 0; slot < juce::jmin ((int) track->size(), FxCmd::kNumSlots); ++slot)
                 out.ccSlots[t][slot] = (uint8_t) juce::jlimit (0, 127, (int) track->getReference (slot));
+        }
+    }
+
+    // arrangement matrix: optional array of per-entry bitmasks
+    if (const auto& mv = v.getProperty ("orderMutes", {}); ! mv.isVoid())
+    {
+        const auto* masks = mv.getArray();
+        if (masks == nullptr)
+            return "orderMutes: not an array";
+
+        for (int i = 0; i < juce::jmin ((int) masks->size(), Song::kMaxOrder); ++i)
+        {
+            const int mask = juce::jlimit (0, 0xffff, (int) masks->getReference (i));
+            for (int t = 0; t < Song::kCcTracks; ++t)
+                out.orderMutes[i][t] = (mask & (1 << t)) != 0;
         }
     }
 

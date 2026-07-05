@@ -243,6 +243,77 @@ static void testTrackStyleIo()
     CHECK (ProjectIO::sanitizeTrackName ("") == "");
 }
 
+static void testOrderMutesIo()
+{
+    Song original = makeSong();   // orderLen = 4
+    original.orderMutes[1][0] = true;
+    original.orderMutes[1][15] = true;
+    original.orderMutes[3][2] = true;
+
+    const auto json = juce::JSON::toString (ProjectIO::songToVar (original));
+    Song restored;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (json), restored).isEmpty());
+    CHECK (restored.orderMuted (1, 0) && restored.orderMuted (1, 15));
+    CHECK (restored.orderMuted (3, 2));
+    CHECK (! restored.orderMuted (0, 0) && ! restored.orderMuted (1, 1));
+
+    // all-clear matrix emits nothing (older files stay identical)
+    const auto plainJson = juce::JSON::toString (ProjectIO::songToVar (makeSong()));
+    CHECK (! plainJson.contains ("orderMutes"));
+    Song plainBack;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (plainJson), plainBack).isEmpty());
+    CHECK (! plainBack.orderMuted (0, 0));
+
+    // hostile: wrong shape fatal, out-of-range masks clamped
+    Song s;
+    const auto bad = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ], "orderMutes": "nope" })");
+    CHECK (ProjectIO::songFromVar (bad, s).isNotEmpty());
+
+    const auto hostile = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ],
+        "order": [0, 0], "orderMutes": [99999999, -7] })");
+    CHECK (ProjectIO::songFromVar (hostile, s).isEmpty());
+    CHECK (s.orderMuted (0, 0) && s.orderMuted (0, 15));   // clamped to 0xFFFF
+    CHECK (! s.orderMuted (1, 0));                         // negative -> 0
+
+    // accessor bounds
+    CHECK (! s.orderMuted (-1, 0) && ! s.orderMuted (0, -1)
+           && ! s.orderMuted (Song::kMaxOrder, 0) && ! s.orderMuted (0, Song::kCcTracks));
+}
+
+static void testMidiExportOrderMutes()
+{
+    Song s;
+    s.setNumChannels (1);
+    s.getPattern (0)->at (0, 0) = { 60, 0, 64, 0, 0 };   // long note, no note-off
+    s.orderLen = 3;
+    s.order[0] = 0; s.order[1] = 0; s.order[2] = 0;
+    s.orderMutes[1][0] = true;                            // middle block muted
+
+    const auto mf = MidiExport::songToMidi (s, 125.0, 6, { "T" });
+    const int rt = MidiExport::rowTicks (6);
+    const auto* t = mf.getTrack (1);
+
+    int ons = 0;
+    bool cutAtBlock1 = false, onAtBlock2 = false;
+    for (int i = 0; i < t->getNumEvents(); ++i)
+    {
+        const auto& m = t->getEventPointer (i)->message;
+        if (m.isNoteOn())
+        {
+            ++ons;
+            if (m.getTimeStamp() == 128.0 * rt)   // block 2 starts at row 128
+                onAtBlock2 = true;
+        }
+        if (m.isNoteOff() && m.getTimeStamp() == 64.0 * rt)   // entering the muted block
+            cutAtBlock1 = true;
+    }
+    CHECK (ons == 2);          // block 0 + block 2; nothing in the muted block
+    CHECK (cutAtBlock1);       // the ringing note is cut at the muted block's door
+    CHECK (onAtBlock2);
+}
+
 static void testPatternNames()
 {
     Song original = makeSong();
@@ -343,6 +414,8 @@ int main()
     testCcSlotsIo();
     testTrackStyleIo();
     testPatternNames();
+    testOrderMutesIo();
+    testMidiExportOrderMutes();
     testMidiExportEffects();
     testModMapping();
 

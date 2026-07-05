@@ -88,6 +88,17 @@ public:
     int order[kMaxOrder] = { 0 };
     int orderLen = 1;
 
+    // arrangement matrix: per-order-entry track mutes (song mode only).
+    // Plain bools read by the audio thread one byte at a time — same benign
+    // race as pattern cells.
+    bool orderMutes[kMaxOrder][kCcTracks] = {};
+
+    bool orderMuted (int pos, int track) const
+    {
+        return pos >= 0 && pos < kMaxOrder && track >= 0 && track < kCcTracks
+            && orderMutes[pos][track];
+    }
+
     // CC slot table (A..H per track), values 0..127
     uint8_t ccSlots[kCcTracks][FxCmd::kNumSlots] = {};
 

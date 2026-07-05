@@ -16,6 +16,8 @@ public:
 
     std::function<void()> onOpenPattern;   // double-click -> back to the tracker
 
+    void resetSelection();   // after project load/new: back to the song start
+
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
@@ -28,11 +30,20 @@ public:
 private:
     struct Block { int x, w, patIdx; };
 
+    // an order entry with its mute row, so reorder/duplicate/insert move the
+    // arrangement-matrix mutes together with the entry
+    struct Entry { int pat; bool mutes[Song::kCcTracks]; };
+
     void timerCallback() override;
     juce::Array<Block> computeBlocks() const;
+    int trackCount() const;
+    int blockHeight() const;
     int entryAt (int x) const;            // -1 outside any block
+    int laneAt (int entry, juce::Point<int> pos) const;   // track lane under the mouse, -1 outside
     int insertionIndexAt (int x) const;   // 0..orderLen
-    void applyNewOrder (const juce::Array<int>& entries, int newSelected);
+    juce::Array<Entry> snapshotOrder() const;
+    void setSelected (int s);   // clamps + feeds the sequencer's start position
+    void applyEntries (const juce::Array<Entry>&, int newSelected);
     void insertEntryAfter (int entry, int patIdx);
     void removeEntry (int entry);
     void showContextMenu (int entry);
@@ -40,7 +51,7 @@ private:
     void endRename (bool commit);
     static juce::String patternLabel (const Song&, int patIdx);
 
-    static constexpr int kMargin = 10, kGap = 8, kHeaderH = 36;
+    static constexpr int kMargin = 10, kGap = 8, kHeaderH = 36, kLaneH = 14;
     static constexpr int kMinBlockW = 96, kMaxBlockW = 384;
 
     HostEngine& engine;
@@ -50,6 +61,7 @@ private:
     int dragEntry = -1;
     bool dragging = false;
     int dropIndex = -1;
+    int pressLane = -1;   // lane under the initial press: click = mute toggle
 
     juce::TextEditor nameEditor;   // in-place pattern rename, hidden when idle
     int renameEntry = -1;

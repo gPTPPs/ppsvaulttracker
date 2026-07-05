@@ -33,6 +33,19 @@ juce::MidiFile MidiExport::songToMidi (const Song& song, double bpm, int speed,
             if (p == nullptr)
                 continue;
 
+            // arrangement matrix: a muted block is silent for this track and
+            // cuts whatever was ringing, mirroring playback
+            if (song.orderMuted (oi, ch))
+            {
+                if (activeNote >= 0)
+                {
+                    seq.addEvent (juce::MidiMessage::noteOff (1, activeNote), (double) (rowBase * rt));
+                    activeNote = -1;
+                }
+                rowBase += p->getNumRows();
+                continue;
+            }
+
             for (int r = 0; r < p->getNumRows(); ++r)
             {
                 const Cell& c = p->at (r, ch);
