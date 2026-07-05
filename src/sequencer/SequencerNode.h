@@ -14,7 +14,11 @@
 class SequencerNode : public juce::AudioProcessor
 {
 public:
-    SequencerNode() : AudioProcessor (BusesProperties()) {}
+    // the audio output carries ONLY the metronome/pre-count clicks; it is
+    // wired straight to the device output, bypassing the mix bus
+    SequencerNode()
+        : AudioProcessor (BusesProperties()
+                              .withOutput ("Click", juce::AudioChannelSet::stereo())) {}
 
     void setSong (Song* s) { song = s; }   // once, before audio starts
 
@@ -39,6 +43,12 @@ public:
     int getUiRow() const          { return uiRow.load(); }          // -1 when stopped
     int getUiPatternIndex() const { return uiPatternIdx.load(); }   // playing pattern
     int getUiOrderPos() const     { return uiOrderPos.load(); }     // -1 in pattern mode
+    float getRowPhase() const     { return rowPhase.load(); }       // 0..1, for quantized recording
+
+    // ---- metronome / pre-count (6b) ----
+    void setMetronome (bool on)      { metroOn.store (on); }
+    bool isMetronomeOn() const       { return metroOn.load(); }
+    void setPrecountRows (int rows)  { precountRowsCfg.store (rows); }   // applied at next play()
 
     // ---- AudioProcessor ----
     void prepareToPlay (double sampleRate, int) override { clock.prepare (sampleRate); }
@@ -76,6 +86,12 @@ private:
     std::atomic<int>    uiRow { -1 };
     std::atomic<int>    uiPatternIdx { 0 };
     std::atomic<int>    uiOrderPos { -1 };
+    std::atomic<float>  rowPhase { 0.0f };
+    std::atomic<bool>   metroOn { false };
+    std::atomic<int>    precountRowsCfg { 0 };
+
+    void triggerClick (int offset, bool accent);
+    void renderClicks (juce::AudioBuffer<float>&);
 
     // audio thread only
     bool wasPlaying = false;
@@ -83,6 +99,15 @@ private:
     int  curOrderPos = 0;
     int  curPattern = 0;
     int  activeNotes[Pattern::kMaxChannels] = {};   // 0 = none, else note + 1
+
+    // click synth + pre-count (audio thread only)
+    struct PendingClick { int offset; bool accent; };
+    PendingClick pendingClicks[8];
+    int    numPendingClicks = 0;
+    int    clickSamplesLeft = 0;
+    double clickPhase = 0.0, clickFreq = 880.0;
+    int    precountLeft = 0;
+    double precountCounter = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SequencerNode)
 };

@@ -37,6 +37,13 @@ public:
     // live input (virtual keyboard + hardware MIDI) targets this channel
     void setLiveChannel (int ch) { liveChannel.store (juce::jlimit (0, kMixChannels - 1, ch)); }
 
+    // ---- live recording / metronome (6b) ----
+    void setLiveRecording (bool on)   { liveRec.store (on); }
+    void setMetronome (bool on)       { sequencer->setMetronome (on); }
+    void setPrecountEnabled (bool on) { precountEnabled = on; }
+    void startPlayback();             // arms the pre-count when Rec is on
+    void stopPlayback()               { sequencer->stop(); }
+
     // ---- project I/O (.ubt folder) ----
     juce::String saveProject (const juce::File& ubtDir);                           // {} on success
     juce::String loadProject (const juce::File& ubtDir, juce::StringArray& warnings);
@@ -117,6 +124,7 @@ private:
     void handleNoteOff (juce::MidiKeyboardState*, int channel, int note, float velocity) override;
     void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override;
     void pushLiveMessage (juce::MidiMessage m);
+    void recordLiveEvent (const juce::MidiMessage& m);   // quantized write into the playing pattern
 
     // song BEFORE graph: graph nodes hold raw pointers into it
     Song song;
@@ -129,6 +137,8 @@ private:
     juce::AudioProcessorPlayer player;
     juce::MidiKeyboardState keyboardState;
     std::atomic<int> liveChannel { 0 };
+    std::atomic<bool> liveRec { false };
+    bool precountEnabled = false;   // message thread only
 
     Node::Ptr audioOutNode, midiInNode, seqNode, masterStripNode;
     Node::Ptr masterInserts[kMaxInserts];

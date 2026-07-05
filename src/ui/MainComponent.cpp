@@ -34,8 +34,8 @@ MainComponent::MainComponent()
         b->setWantsKeyboardFocus (false);
         addAndMakeVisible (b);
     }
-    playBtn.onClick = [this] { engine.getSequencer().play(); patternEditor.grabKeyboardFocus(); };
-    stopBtn.onClick = [this] { engine.getSequencer().stop(); patternEditor.grabKeyboardFocus(); };
+    playBtn.onClick = [this] { engine.startPlayback(); patternEditor.grabKeyboardFocus(); };
+    stopBtn.onClick = [this] { engine.stopPlayback(); patternEditor.grabKeyboardFocus(); };
 
     auto setupToggle = [this] (juce::TextButton& b, bool initial, std::function<void (bool)> apply)
     {
@@ -46,11 +46,16 @@ MainComponent::MainComponent()
         b.onClick = [this, &b, apply] { apply (b.getToggleState()); patternEditor.grabKeyboardFocus(); };
         addAndMakeVisible (b);
     };
-    setupToggle (recBtn,      false, [this] (bool on) { patternEditor.recEnabled = on; });
+    setupToggle (recBtn,      false, [this] (bool on) { patternEditor.recEnabled = on;
+                                                        engine.setLiveRecording (on); });
     setupToggle (followBtn,   true,  [this] (bool on) { patternEditor.followPlayhead = on; });
     setupToggle (azertyBtn,   true,  [this] (bool on) { patternEditor.azertyLayout = on;
                                                         azertyBtn.setButtonText (on ? "AZERTY" : "QWERTY"); });
     setupToggle (songModeBtn, false, [this] (bool on) { engine.getSequencer().setSongMode (on); });
+    setupToggle (metroBtn,    false, [this] (bool on) { engine.setMetronome (on); });
+    setupToggle (precountBtn, false, [this] (bool on) { engine.setPrecountEnabled (on); });
+    setupToggle (keymapBtn,   false, [this] (bool on) { patternEditor.ptKeys = on;
+                                                        keymapBtn.setButtonText (on ? "PT" : "FT2"); });
 
     auto setupIncDec = [this] (juce::Slider& s, double min, double max, double value,
                                std::function<void (double)> apply)
@@ -562,7 +567,10 @@ void MainComponent::resized()
 
     area.removeFromTop (6);
     auto songRow = area.removeFromTop (30);
-    place (songRow, songModeBtn, 96, 14);
+    place (songRow, songModeBtn, 96, 10);
+    place (songRow, metroBtn, 70, 8);
+    place (songRow, precountBtn, 56, 8);
+    place (songRow, keymapBtn, 56, 14);
     place (songRow, patLabel, 56, 2);
     place (songRow, patSlider, 96, 10);
     place (songRow, addPatBtn, 100, 14);

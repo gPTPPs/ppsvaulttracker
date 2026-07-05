@@ -111,6 +111,10 @@ void HostEngine::rebuildConnections()
 
     for (int a = 0; a < 2; ++a)
         graph.addConnection ({ { masterStripNode->nodeID, a }, { audioOutNode->nodeID, a } });
+
+    // metronome clicks: straight to the device, bypassing the mix bus
+    for (int a = 0; a < 2; ++a)
+        graph.addConnection ({ { seqNode->nodeID, a }, { audioOutNode->nodeID, a } });
 }
 
 std::unique_ptr<juce::AudioPluginInstance> HostEngine::createInstance (const juce::File& file,
@@ -622,7 +626,10 @@ juce::String HostEngine::renderOffline (const juce::File& wavFile, int soloChann
     stream.release();   // the writer owns it now
 
     const bool prevSongMode = sequencer->isSongMode();
+    const bool prevMetro = sequencer->isMetronomeOn();
     sequencer->setSongMode (true);
+    sequencer->setMetronome (false);   // never render clicks into stems
+    sequencer->setPrecountRows (0);
     sequencer->play();
 
     juce::AudioBuffer<float> buf (2, block);
@@ -646,6 +653,7 @@ juce::String HostEngine::renderOffline (const juce::File& wavFile, int soloChann
 
     sequencer->stop();
     sequencer->setSongMode (prevSongMode);
+    sequencer->setMetronome (prevMetro);
     writer.reset();
     updateMuteStates();
     if (error.isNotEmpty())
@@ -785,14 +793,53 @@ juce::String HostEngine::getInsertName (int chOrMaster, int index) const
 
 // ---------------------------------------------------------------- live MIDI
 
+void HostEngine::startPlayback()
+{
+    sequencer->setPrecountRows (precountEnabled && liveRec.load() ? 16 : 0);
+    sequencer->play();
+}
+
+void HostEngine::recordLiveEvent (const juce::MidiMessage& m)
+{
+    if (! liveRec.load() || ! sequencer->isPlaying())
+        return;
+    auto* pat = song.getPattern (sequencer->getUiPatternIndex());
+    if (pat == nullptr)
+        return;
+    int row = sequencer->getUiRow();
+    if (row < 0)
+        return;   // pre-count still running
+
+    // quantize to the NEAREST row
+    if (sequencer->getRowPhase() > 0.5f)
+        row = (row + 1) % pat->getNumRows();
+    const int ch = juce::jlimit (0, pat->getNumChannels() - 1, liveChannel.load());
+    auto& cell = pat->at (row, ch);   // direct write, benign race by design
+
+    if (m.isNoteOn())
+    {
+        cell.note = (uint8_t) juce::jlimit (1, 127, m.getNoteNumber());
+        cell.volume = (uint8_t) juce::jlimit (1, 64, (int) std::lround (m.getFloatVelocity() * 64.0f));
+        cell.instrument = 0;
+    }
+    else if (m.isNoteOff() && ! cell.hasNote())
+    {
+        cell.note = Cell::kNoteOff;   // never stomp a fresh note with "==="
+    }
+}
+
 void HostEngine::handleNoteOn (juce::MidiKeyboardState*, int channel, int note, float velocity)
 {
-    pushLiveMessage (juce::MidiMessage::noteOn (channel, note, velocity));
+    const auto m = juce::MidiMessage::noteOn (channel, note, velocity);
+    recordLiveEvent (m);
+    pushLiveMessage (m);
 }
 
 void HostEngine::handleNoteOff (juce::MidiKeyboardState*, int channel, int note, float velocity)
 {
-    pushLiveMessage (juce::MidiMessage::noteOff (channel, note, velocity));
+    const auto m = juce::MidiMessage::noteOff (channel, note, velocity);
+    recordLiveEvent (m);
+    pushLiveMessage (m);
 }
 
 void HostEngine::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m)
@@ -801,6 +848,8 @@ void HostEngine::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMe
     juce::MidiMessage remapped (m);
     if (remapped.getChannel() > 0)
         remapped.setChannel (liveChannel.load() + 1);
+    if (remapped.isNoteOn() || remapped.isNoteOff())
+        recordLiveEvent (remapped);
     if (deviceManager.getCurrentAudioDevice() != nullptr)
         player.getMidiMessageCollector().addMessageToQueue (remapped);
 }

@@ -20,6 +20,7 @@ public:
     bool recEnabled = false;
     bool followPlayhead = true;
     bool azertyLayout = true;    // BE/FR default
+    bool ptKeys = false;         // false = FT2 keymap, true = ProTracker keymap
     int  editStep = 1;           // rows to advance after an entry (0..16)
     int  editOctave = 3;         // low piano row octave (1..7)
 

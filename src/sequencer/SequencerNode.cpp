@@ -1,7 +1,43 @@
 #include "sequencer/SequencerNode.h"
 
+void SequencerNode::triggerClick (int offset, bool accent)
+{
+    if (numPendingClicks < 8)
+        pendingClicks[numPendingClicks++] = { offset, accent };
+}
+
+void SequencerNode::renderClicks (juce::AudioBuffer<float>& audio)
+{
+    const int numSamples = audio.getNumSamples();
+    const int numCh = juce::jmin (2, audio.getNumChannels());
+    const double sr = getSampleRate() > 0 ? getSampleRate() : 44100.0;
+
+    int next = 0;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        while (next < numPendingClicks && pendingClicks[next].offset <= i)
+        {
+            clickSamplesLeft = (int) (sr * 0.03);   // 30 ms tick
+            clickPhase = 0.0;
+            clickFreq = pendingClicks[next].accent ? 1567.0 : 1046.5;   // G6 / C6
+            ++next;
+        }
+        if (clickSamplesLeft > 0)
+        {
+            const float env = (float) clickSamplesLeft / (float) (sr * 0.03);
+            const float v = 0.25f * env * (float) std::sin (clickPhase * juce::MathConstants<double>::twoPi);
+            clickPhase += clickFreq / sr;
+            for (int ch = 0; ch < numCh; ++ch)
+                audio.addSample (ch, i, v);
+            --clickSamplesLeft;
+        }
+    }
+    numPendingClicks = 0;
+}
+
 void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
 {
+    audio.clear();   // we own this bus: clicks only
     const int numSamples = audio.getNumSamples();
     const bool playNow = playRequested.load();
 
@@ -20,6 +56,8 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
         clock.reset();
         firstRowPending = true;
         curOrderPos = 0;
+        precountLeft = precountRowsCfg.load();
+        precountCounter = 0.0;
         for (auto& n : activeNotes)
             n = 0;
     }
@@ -28,11 +66,39 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
         killAllNotes (0);
         uiRow.store (-1);
         uiOrderPos.store (-1);
+        precountLeft = 0;
     }
     wasPlaying = playNow;
 
     if (! playNow || song == nullptr)
         return;
+
+    clock.setTempo (bpmAtomic.load(), speedAtomic.load());
+
+    // ---- pre-count: clicks only, the pattern starts afterwards ----
+    if (precountLeft > 0)
+    {
+        const double rowLen = clock.samplesPerRow();
+        for (int i = 0; i < numSamples && precountLeft > 0; ++i)
+        {
+            if (precountCounter <= 0.0)
+            {
+                const int rowsDone = precountRowsCfg.load() - precountLeft;
+                if (rowsDone % 4 == 0)                       // click every beat
+                    triggerClick (i, rowsDone == 0);
+                precountCounter += rowLen;
+                --precountLeft;
+
+                if (precountLeft == 0)
+                    clock.reset();   // pattern starts clean right after
+            }
+            precountCounter -= 1.0;
+        }
+        renderClicks (audio);
+        uiRow.store (-1);
+        if (precountLeft > 0)
+            return;
+    }
 
     if (firstRowPending)
         curPattern = songMode.load() ? clampPatternIndex (song->order[0])
@@ -42,7 +108,7 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
     if (pat == nullptr)
         return;
 
-    clock.setTempo (bpmAtomic.load(), speedAtomic.load());
+    const bool metro = metroOn.load();
 
     clock.advance (numSamples, pat->getNumRows(), [&] (int row, int offset)
     {
@@ -64,6 +130,9 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
             pat = song->getPattern (curPattern);
         }
         firstRowPending = false;
+
+        if (metro && row % 4 == 0)
+            triggerClick (offset, row % 16 == 0);
 
         const int numChannels = juce::jmin (pat->getNumChannels(), 16);
         for (int ch = 0; ch < numChannels; ++ch)
@@ -89,4 +158,7 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
         uiPatternIdx.store (curPattern);
         uiOrderPos.store (songMode.load() ? curOrderPos : -1);
     });
+
+    rowPhase.store ((float) clock.phaseInRow());
+    renderClicks (audio);
 }

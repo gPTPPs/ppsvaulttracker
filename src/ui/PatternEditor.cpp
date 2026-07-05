@@ -261,23 +261,33 @@ bool PatternEditor::keyPressed (const juce::KeyPress& kp)
         }
     }
 
-    // ---- transpose: Shift+F1/F2 = ±1 semitone, Ctrl+F1/F2 = ±12 ----
+    // ---- transpose: Shift+F1/F2 = ±1 semitone, Ctrl+F1/F2 = ±12 (both keymaps) ----
     if (code == juce::KeyPress::F1Key || code == juce::KeyPress::F2Key)
-    {
-        const int dir = code == juce::KeyPress::F2Key ? 1 : -1;
         if (mods.isShiftDown() || mods.isCtrlDown())
         {
+            const int dir = code == juce::KeyPress::F2Key ? 1 : -1;
             const auto region = currentRegion();
             undo.begin (*p, region);
             PatternOps::transpose (*p, region, dir * (mods.isCtrlDown() ? 12 : 1));
             undo.commit (*p);
             repaint();
+            return true;
         }
-        else
-        {
-            editOctave = juce::jlimit (1, 7, editOctave + dir);
-        }
-        return true;
+
+    // ---- octave: FT2 = F1/F2 down/up; ProTracker = F1..F5 select directly ----
+    if (! ptKeys)
+    {
+        if (code == juce::KeyPress::F1Key) { editOctave = juce::jlimit (1, 7, editOctave - 1); return true; }
+        if (code == juce::KeyPress::F2Key) { editOctave = juce::jlimit (1, 7, editOctave + 1); return true; }
+    }
+    else
+    {
+        for (int f = 0; f < 5; ++f)
+            if (code == juce::KeyPress::F1Key + f)
+            {
+                editOctave = f + 1;
+                return true;
+            }
     }
 
     // ---- navigation ----
@@ -305,14 +315,14 @@ bool PatternEditor::keyPressed (const juce::KeyPress& kp)
     if (code == juce::KeyPress::escapeKey)   { hasSelection = false; repaint(); return true; }
     if (code == juce::KeyPress::deleteKey)   { deleteAtCursor(); return true; }
 
-    // space = play/stop (the sequencer follows the current Song/Pattern mode)
+    // space = play/stop (the sequencer follows the current Song/Pattern mode;
+    // startPlayback arms the pre-count when recording)
     if (code == juce::KeyPress::spaceKey)
     {
-        auto& seq = engine.getSequencer();
-        if (seq.isPlaying())
-            seq.stop();
+        if (engine.getSequencer().isPlaying())
+            engine.stopPlayback();
         else
-            seq.play();
+            engine.startPlayback();
         return true;
     }
 

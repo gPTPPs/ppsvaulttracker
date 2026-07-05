@@ -30,6 +30,17 @@ public:
     double samplesPerRow() const { return sampleRate * 2.5 / bpm * speed; }
     int getCurrentRow() const    { return row; }
 
+    // 0..1 position inside the current row — the live-recording quantizer
+    // rounds to the nearest row with this
+    double phaseInRow() const
+    {
+        const double spr = samplesPerRow();
+        if (spr <= 0.0)
+            return 0.0;
+        const double p = 1.0 - (nextRowAt - samplePos) / spr;
+        return p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p);
+    }
+
     // Walks numSamples; calls onRow(rowIndex, sampleOffsetInBuffer) for every
     // row boundary crossed. Loops over numRows. Tempo changes take effect at
     // the next row boundary.

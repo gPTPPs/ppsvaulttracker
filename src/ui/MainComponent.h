@@ -87,6 +87,7 @@ private:
     // transport + edit controls
     juce::TextButton playBtn { "Play" }, stopBtn { "Stop" };
     juce::TextButton recBtn { "Rec" }, followBtn { "Follow" }, azertyBtn { "AZERTY" };
+    juce::TextButton metroBtn { "Metro" }, precountBtn { "Pre" }, keymapBtn { "FT2" };
     juce::Slider bpmSlider, speedSlider, stepSlider, octaveSlider, chanSlider;
     juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" },
                 stepLabel { {}, "Step" }, octaveLabel { {}, "Oct" }, chanLabel { {}, "Ch" };

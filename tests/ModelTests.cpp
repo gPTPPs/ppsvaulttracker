@@ -85,6 +85,28 @@ static void testClockLoop()
         CHECK (rows[(size_t) i] == expected[i]);
 }
 
+static void testClockPhase()
+{
+    TrackerClock c;
+    c.prepare (48000.0);
+    c.setTempo (125.0, 6);   // 5760 samples per row
+
+    c.advance (1440, 64, [] (int, int) {});   // quarter of a row
+    CHECK (std::abs (c.phaseInRow() - 0.25) < 1e-9);
+
+    c.advance (3600, 64, [] (int, int) {});   // now at 5040 = 0.875
+    CHECK (c.phaseInRow() > 0.5);             // quantizer would pick the NEXT row
+
+    // landing exactly on the boundary: the row has not fired yet, phase
+    // reads 1.0 — the nearest-row quantizer correctly picks the next row
+    c.advance (720, 64, [] (int, int) {});
+    CHECK (c.phaseInRow() > 0.999);
+
+    // next block fires the row at offset 0, phase drops back
+    c.advance (576, 64, [] (int, int) {});    // 576/5760 = 0.1 into the row
+    CHECK (std::abs (c.phaseInRow() - 0.1) < 1e-9);
+}
+
 static void testClockOffsetsInsideBuffer()
 {
     TrackerClock c;
@@ -104,6 +126,7 @@ int main()
     testClockMath();
     testClockAdvance();
     testClockLoop();
+    testClockPhase();
     testClockOffsetsInsideBuffer();
 
     if (failures == 0)
