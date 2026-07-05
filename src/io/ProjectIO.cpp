@@ -1,5 +1,14 @@
 #include "io/ProjectIO.h"
 
+juce::String ProjectIO::sanitizeTrackName (const juce::String& raw)
+{
+    juce::String out;
+    for (auto t = raw.getCharPointer(); ! t.isEmpty(); ++t)
+        if (*t >= 0x20)
+            out += juce::String::charToString (*t);
+    return out.trim().substring (0, Song::kMaxTrackNameLen);
+}
+
 juce::var ProjectIO::songToVar (const Song& s)
 {
     auto* root = new juce::DynamicObject();
@@ -42,6 +51,28 @@ juce::var ProjectIO::songToVar (const Song& s)
         ccTable.add (juce::var (track));
     }
     root->setProperty ("ccSlots", juce::var (ccTable));
+
+    // track identity: emitted only when something is customised, so default
+    // projects keep the exact same song.json as before
+    bool anyTrackStyle = false;
+    for (int t = 0; t < Song::kCcTracks; ++t)
+        anyTrackStyle = anyTrackStyle || ! s.trackNames[t].empty() || s.trackColors[t] != 0;
+
+    if (anyTrackStyle)
+    {
+        juce::Array<juce::var> tracks;
+        for (int t = 0; t < Song::kCcTracks; ++t)
+        {
+            auto* to = new juce::DynamicObject();
+            if (! s.trackNames[t].empty())
+                to->setProperty ("name", juce::String::fromUTF8 (s.trackNames[t].c_str()));
+            if (s.trackColors[t] != 0)
+                to->setProperty ("color", juce::String::toHexString ((int) s.trackColors[t])
+                                              .paddedLeft ('0', 8).toUpperCase());
+            tracks.add (juce::var (to));
+        }
+        root->setProperty ("tracks", juce::var (tracks));
+    }
 
     return juce::var (root);
 }
@@ -131,6 +162,37 @@ juce::String ProjectIO::songFromVar (const juce::var& v, Song& out)
                 return "ccSlots: track " + juce::String (t) + " is not an array";
             for (int slot = 0; slot < juce::jmin ((int) track->size(), FxCmd::kNumSlots); ++slot)
                 out.ccSlots[t][slot] = (uint8_t) juce::jlimit (0, 127, (int) track->getReference (slot));
+        }
+    }
+
+    // track identity: optional (older .ubt files keep the defaults)
+    if (const auto& tv = v.getProperty ("tracks", {}); ! tv.isVoid())
+    {
+        const auto* tracks = tv.getArray();
+        if (tracks == nullptr)
+            return "tracks: not an array";
+
+        for (int t = 0; t < juce::jmin ((int) tracks->size(), Song::kCcTracks); ++t)
+        {
+            const auto& e = tracks->getReference (t);
+            if (! e.isObject())
+                return "tracks: entry " + juce::String (t) + " is not an object";
+
+            if (const auto& nv = e.getProperty ("name", {}); nv.isString())
+                out.trackNames[t] = sanitizeTrackName (nv.toString()).toStdString();
+
+            if (const auto& cv = e.getProperty ("color", {}); cv.isString())
+            {
+                const auto hex = cv.toString().trim();
+                if (hex.isNotEmpty() && hex.length() <= 8
+                    && hex.containsOnly ("0123456789abcdefABCDEF"))
+                {
+                    // stored ARGB; force full alpha so a colour is never invisible
+                    const auto argb = (uint32_t) hex.getHexValue32();
+                    if ((argb & 0x00ffffffu) != 0)
+                        out.trackColors[t] = argb | 0xff000000u;
+                }
+            }
         }
     }
 

@@ -548,11 +548,22 @@ void HostEngine::autosaveBackup()
 
 // ---------------------------------------------------------------- exports
 
+// custom track name if set, empty string otherwise
+static juce::String customTrackName (const Song& song, int ch)
+{
+    if (ch >= 0 && ch < Song::kCcTracks && ! song.trackNames[ch].empty())
+        return juce::String::fromUTF8 (song.trackNames[ch].c_str());
+    return {};
+}
+
 juce::String HostEngine::exportMidi (const juce::File& dest)
 {
     juce::StringArray names;
     for (int ch = 0; ch < song.getNumChannels(); ++ch)
-        names.add (slots[ch].instrumentName);
+    {
+        const auto custom = customTrackName (song, ch);
+        names.add (custom.isNotEmpty() ? custom : slots[ch].instrumentName);
+    }
     return MidiExport::writeMidiFile (song, sequencer->getBpm(), sequencer->getSpeed(), names, dest);
 }
 
@@ -567,8 +578,12 @@ juce::String HostEngine::exportTracklist (const juce::File& destTxt)
     for (int ch = 0; ch < song.getNumChannels(); ++ch)
     {
         const auto& s = slots[ch];
+        const auto custom = customTrackName (song, ch);
         const auto name = s.instrumentName.isNotEmpty() ? s.instrumentName : juce::String ("(empty)");
-        txt << "Track " << juce::String (ch + 1).paddedLeft ('0', 2) << ": " << name;
+        txt << "Track " << juce::String (ch + 1).paddedLeft ('0', 2) << ": ";
+        if (custom.isNotEmpty())
+            txt << custom << "  |  ";
+        txt << name;
         if (s.instrument != nullptr)
             txt << "  |  " << s.instrumentDesc.manufacturerName
                 << "  |  " << s.instrumentDesc.fileOrIdentifier
@@ -577,6 +592,8 @@ juce::String HostEngine::exportTracklist (const juce::File& destTxt)
 
         auto* o = new juce::DynamicObject();
         o->setProperty ("track", ch + 1);
+        if (custom.isNotEmpty())
+            o->setProperty ("name", custom);
         o->setProperty ("instrument", name);
         if (s.instrument != nullptr)
         {

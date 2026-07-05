@@ -1,5 +1,7 @@
 #include "ui/PatternEditor.h"
 #include "ui/RVLookAndFeel.h"
+#include "ui/TrackStyle.h"
+#include "io/ProjectIO.h"
 
 namespace
 {
@@ -38,6 +40,16 @@ PatternEditor::PatternEditor (HostEngine& e) : engine (e)
 {
     setOpaque (true);
     setWantsKeyboardFocus (true);
+
+    nameEditor.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
+                                                       13.0f, juce::Font::plain)));
+    nameEditor.setInputRestrictions (Song::kMaxTrackNameLen);
+    nameEditor.setSelectAllWhenFocused (true);
+    nameEditor.onReturnKey  = [this] { endNameEdit (true); };
+    nameEditor.onEscapeKey  = [this] { endNameEdit (false); };
+    nameEditor.onFocusLost  = [this] { endNameEdit (true); };
+    addChildComponent (nameEditor);
+
     startTimerHz (30);
 }
 
@@ -54,6 +66,7 @@ void PatternEditor::setFirstChannel (int fc)
         fc = juce::jlimit (0, juce::jmax (0, p->getNumChannels() - visibleChannelCount()), fc);
     if (fc != firstChannel)
     {
+        endNameEdit (true);   // don't leave the rename editor over the wrong column
         firstChannel = fc;
         if (onViewChanged)
             onViewChanged();
@@ -76,13 +89,24 @@ void PatternEditor::paint (juce::Graphics& g)
     const juce::Font mono (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 15.0f, juce::Font::plain));
 
     // ---- channel headers ----
+    const auto& song = engine.getSong();
     g.setFont (mono.withHeight (13.0f));
     for (int ch = firstChannel; ch < lastCh; ++ch)
     {
-        g.setColour (ch == cursorChannel ? RV::cyan : RV::textDim);
-        g.drawText ("CH " + hex2 (ch + 1),
-                    kRowNumW + (ch - firstChannel) * (kChanW + kChanGap), 0, kChanW, headerH(),
-                    juce::Justification::centredLeft);
+        const int x = kRowNumW + (ch - firstChannel) * (kChanW + kChanGap);
+        const auto accent = TrackStyle::colourOr (song, ch, RV::cyan);
+
+        g.setColour (ch == cursorChannel ? accent
+                     : TrackStyle::hasColour (song, ch) ? accent.withAlpha (0.7f)
+                                                        : RV::textDim);
+        g.drawText (TrackStyle::nameOr (song, ch, "CH " + hex2 (ch + 1)),
+                    x, 0, kChanW, headerH(), juce::Justification::centredLeft);
+
+        if (TrackStyle::hasColour (song, ch))
+        {
+            g.setColour (accent.withAlpha (ch == cursorChannel ? 0.9f : 0.5f));
+            g.fillRect (x, headerH() - 4, kChanW, 2);
+        }
     }
     if (firstChannel > 0)
     {
@@ -401,6 +425,17 @@ void PatternEditor::mouseDown (const juce::MouseEvent& e)
     if (p == nullptr)
         return;
 
+    if (e.y < headerH())
+    {
+        const int ch = headerChannelAt (e.x);
+        if (ch >= 0 && e.mods.isPopupMenu())
+            TrackStyle::showColourMenu (engine.getSong(), ch,
+                juce::PopupMenu::Options().withTargetScreenArea (
+                    localAreaToGlobal (headerCellBounds (ch))),
+                [this] { repaint(); });
+        return;
+    }
+
     const int row = topRow + (e.y - headerH()) / kRowH;
     if (row < 0 || row >= p->getNumRows())
         return;
@@ -430,6 +465,54 @@ void PatternEditor::mouseDown (const juce::MouseEvent& e)
     cursorChannel = ch;
     cursorSub = sub;
     notifyChannelChange (prev);
+    repaint();
+}
+
+void PatternEditor::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (e.y >= headerH() || e.mods.isPopupMenu())
+        return;
+    const int ch = headerChannelAt (e.x);
+    if (ch >= 0)
+        beginNameEdit (ch);
+}
+
+int PatternEditor::headerChannelAt (int x) const
+{
+    auto* p = pattern();
+    if (p == nullptr || x < kRowNumW)
+        return -1;
+    const int ch = firstChannel + (x - kRowNumW) / (kChanW + kChanGap);
+    return ch < juce::jmin (p->getNumChannels(), Song::kCcTracks) ? ch : -1;
+}
+
+juce::Rectangle<int> PatternEditor::headerCellBounds (int ch) const
+{
+    return { kRowNumW + (ch - firstChannel) * (kChanW + kChanGap), 0, kChanW, headerH() - 2 };
+}
+
+void PatternEditor::beginNameEdit (int ch)
+{
+    editingChannel = ch;
+    nameEditor.setText (TrackStyle::nameOr (engine.getSong(), ch, {}), juce::dontSendNotification);
+    nameEditor.setBounds (headerCellBounds (ch));
+    nameEditor.setVisible (true);
+    nameEditor.grabKeyboardFocus();
+}
+
+void PatternEditor::endNameEdit (bool commit)
+{
+    if (editingChannel < 0)
+        return;   // re-entry guard: hiding the editor fires onFocusLost
+    const int ch = editingChannel;
+    editingChannel = -1;
+
+    if (commit)
+        engine.getSong().trackNames[ch] =
+            ProjectIO::sanitizeTrackName (nameEditor.getText()).toStdString();
+
+    nameEditor.setVisible (false);
+    grabKeyboardFocus();
     repaint();
 }
 

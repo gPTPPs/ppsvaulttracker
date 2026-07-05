@@ -15,6 +15,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;   // right-click on a title = track colour
     void syncFromEngine();   // labels + faders + M/S states (after project load)
 
     static constexpr int kStripW = GridMetrics::kStride;   // aligned with the grid columns
@@ -36,6 +37,7 @@ private:
 
     void timerCallback() override;
     void refreshLabels();
+    void refreshTrackTitles();   // names + colours (grid-side renames land here too)
     void showCcSlotsFor (int ch);
     void loadInstrumentFor (int ch);
     void addInsertFor (int chOrMaster);

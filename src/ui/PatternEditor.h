@@ -33,6 +33,7 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
     bool keyStateChanged (bool isKeyDown) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
@@ -56,6 +57,12 @@ private:
     void previewNote (int keyCode, int midiNote);
     PatternOps::Selection currentRegion() const;   // selection if active, else cursor cell
     int  noteForChar (juce::juce_wchar c) const;   // -1 if not a note key
+
+    // track identity (header double-click = rename, right-click = colour)
+    int headerChannelAt (int x) const;             // -1 outside the header cells
+    juce::Rectangle<int> headerCellBounds (int ch) const;
+    void beginNameEdit (int ch);
+    void endNameEdit (bool commit);
 
     // geometry (horizontal metrics shared with the mixer)
     static constexpr int kRowH = 18;
@@ -82,6 +89,9 @@ private:
     struct HeldKey { int keyCode; int midiNote; int midiChannel; };
     juce::Array<HeldKey> heldKeys;
     bool focusGrabbed = false;
+
+    juce::TextEditor nameEditor;   // in-place track rename, hidden when idle
+    int editingChannel = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatternEditor)
 };

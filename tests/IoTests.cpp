@@ -188,6 +188,61 @@ static void testCcSlotsIo()
     CHECK (s.ccForSlot (0, 2) == 1);                                // rest = defaults
 }
 
+static void testTrackStyleIo()
+{
+    // names + colours survive the JSON round-trip
+    Song original = makeSong();
+    original.trackNames[0] = "Bass";
+    original.trackNames[15] = "Pads";
+    original.trackColors[0] = 0xff00e5ff;
+
+    const auto json = juce::JSON::toString (ProjectIO::songToVar (original));
+    Song restored;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (json), restored).isEmpty());
+    CHECK (restored.trackNames[0] == "Bass");
+    CHECK (restored.trackNames[15] == "Pads");
+    CHECK (restored.trackColors[0] == 0xff00e5ff);
+    CHECK (restored.trackNames[1].empty() && restored.trackColors[1] == 0);
+
+    // all-default song emits no "tracks" property at all (song.json unchanged)
+    const auto plainJson = juce::JSON::toString (ProjectIO::songToVar (makeSong()));
+    CHECK (! plainJson.contains ("\"tracks\""));
+
+    // pre-track-style .ubt -> defaults, not an error
+    const auto legacy = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ] })");
+    Song fromLegacy;
+    CHECK (ProjectIO::songFromVar (legacy, fromLegacy).isEmpty());
+    CHECK (fromLegacy.trackNames[0].empty() && fromLegacy.trackColors[0] == 0);
+
+    // malformed shapes are fatal
+    Song s;
+    const auto bad = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ], "tracks": "nope" })");
+    CHECK (ProjectIO::songFromVar (bad, s).isNotEmpty());
+    const auto bad2 = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ], "tracks": [ 42 ] })");
+    CHECK (ProjectIO::songFromVar (bad2, s).isNotEmpty());
+
+    // hostile values: control chars stripped + capped name, junk colour ignored,
+    // alpha forced opaque
+    const auto hostile = juce::JSON::parse (
+        "{ \"numChannels\": 1, \"patterns\": [ { \"rows\": 8 } ],"
+        "  \"tracks\": [ { \"name\": \"  Ba\\nss with a very very long name indeed  \","
+        "                  \"color\": \"garbage\" },"
+        "                { \"name\": 42, \"color\": \"0000e5ff\" } ] }");
+    CHECK (ProjectIO::songFromVar (hostile, s).isEmpty());
+    CHECK (s.trackNames[0] == juce::String ("Bass with a very very lo").toStdString());
+    CHECK (s.trackColors[0] == 0);                 // junk colour -> theme default
+    CHECK (s.trackNames[1].empty());               // non-string name ignored
+    CHECK (s.trackColors[1] == 0xff00e5ffu);       // zero alpha forced to opaque
+
+    // the sanitizer itself (shared with the UI editors)
+    CHECK (ProjectIO::sanitizeTrackName ("  plain  ") == "plain");
+    CHECK (ProjectIO::sanitizeTrackName ("a\tb\rc") == "abc");
+    CHECK (ProjectIO::sanitizeTrackName ("") == "");
+}
+
 static void testMidiExportEffects()
 {
     Song s;
@@ -256,6 +311,7 @@ int main()
     testClampsHostileValues();
     testMidiExport();
     testCcSlotsIo();
+    testTrackStyleIo();
     testMidiExportEffects();
     testModMapping();
 

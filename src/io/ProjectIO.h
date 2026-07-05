@@ -13,4 +13,8 @@ namespace ProjectIO
 
     // strict validation; returns an error message, or {} on success (song filled)
     juce::String songFromVar (const juce::var&, Song&);
+
+    // track-name policy, shared by loading and the UI editors: control chars
+    // stripped, trimmed, capped at Song::kMaxTrackNameLen code points
+    juce::String sanitizeTrackName (const juce::String&);
 }

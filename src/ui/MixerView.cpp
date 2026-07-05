@@ -1,5 +1,7 @@
 #include "ui/MixerView.h"
 #include "ui/RVLookAndFeel.h"
+#include "ui/TrackStyle.h"
+#include "io/ProjectIO.h"
 
 // Per-track CC slot editor (command letters A..H -> controller numbers),
 // shown in a CallOutBox from the strip's CC button. Writes straight into
@@ -9,7 +11,8 @@ class CcSlotsPanel : public juce::Component
 public:
     CcSlotsPanel (Song& s, int trackIndex) : song (s), track (trackIndex)
     {
-        title.setText ("CC slots - CH " + juce::String (track + 1), juce::dontSendNotification);
+        title.setText ("CC slots - " + TrackStyle::nameOr (song, track, "CH " + juce::String (track + 1)),
+                       juce::dontSendNotification);
         title.setFont (juce::Font (juce::FontOptions (13.0f)).boldened());
         title.setColour (juce::Label::textColourId, RV::cyan);
         addAndMakeVisible (title);
@@ -93,6 +96,19 @@ MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstan
 
         if (! isMaster)
         {
+            // double-click = rename (empty = back to "CH n"), right-click = colour
+            s.title.setEditable (false, true, false);
+            s.title.onTextChange = [this, ch, &s]
+            {
+                engine.getSong().trackNames[ch] =
+                    ProjectIO::sanitizeTrackName (s.title.getText()).toStdString();
+                refreshTrackTitles();
+            };
+            s.title.addMouseListener (this, false);
+        }
+
+        if (! isMaster)
+        {
             s.instBtn.setWantsKeyboardFocus (false);
             s.instBtn.onClick = [this, ch, &s]
             {
@@ -155,7 +171,37 @@ MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstan
     }
 
     refreshLabels();
+    refreshTrackTitles();
     startTimerHz (30);
+}
+
+void MixerView::mouseDown (const juce::MouseEvent& e)
+{
+    if (! e.mods.isPopupMenu())
+        return;
+    for (int i = 0; i < kNumStrips; ++i)
+        if (i != kMaster && e.originalComponent == &strips[i].title)
+        {
+            TrackStyle::showColourMenu (engine.getSong(), i,
+                juce::PopupMenu::Options().withTargetComponent (&strips[i].title),
+                [this] { refreshTrackTitles(); });
+            return;
+        }
+}
+
+void MixerView::refreshTrackTitles()
+{
+    const auto& song = engine.getSong();
+    for (int i = 0; i < kNumStrips; ++i)
+    {
+        auto& s = strips[i];
+        if (i == kMaster || s.title.isBeingEdited())
+            continue;
+        s.title.setText (TrackStyle::nameOr (song, i, "CH " + juce::String (i + 1)),
+                         juce::dontSendNotification);
+        s.title.setColour (juce::Label::textColourId,
+                           TrackStyle::colourOr (song, i, RV::textDim));
+    }
 }
 
 juce::Rectangle<int> MixerView::stripArea (int index) const
@@ -275,6 +321,7 @@ void MixerView::timerCallback()
         const float peak = i == kMaster ? engine.readMasterPeak() : engine.readChannelPeak (i);
         vu[i] = juce::jmax (peak, vu[i] * 0.85f);   // fast attack, smooth decay
     }
+    refreshTrackTitles();   // cheap no-op when unchanged; picks up grid-side renames
     repaint();
 }
 
@@ -295,6 +342,7 @@ void MixerView::syncFromEngine()
         }
     }
     refreshLabels();
+    refreshTrackTitles();
 }
 
 void MixerView::refreshLabels()
@@ -328,8 +376,9 @@ void MixerView::loadInstrumentFor (int ch)
     if (! startDir.isDirectory())
         startDir = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
 
-    chooser = std::make_unique<juce::FileChooser> ("Instrument for CH " + juce::String (ch + 1),
-                                                   startDir, "*.vst3");
+    chooser = std::make_unique<juce::FileChooser> (
+        "Instrument for " + TrackStyle::nameOr (engine.getSong(), ch, "CH " + juce::String (ch + 1)),
+        startDir, "*.vst3");
     chooser->launchAsync (juce::FileBrowserComponent::openMode
                               | juce::FileBrowserComponent::canSelectFiles
                               | juce::FileBrowserComponent::canSelectDirectories,

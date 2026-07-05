@@ -1,6 +1,7 @@
 #include "ui/MainComponent.h"
 #include "AppVersion.h"
 #include "io/ModImport.h"
+#include "ui/TrackStyle.h"
 
 MainComponent::MainComponent()
 {
@@ -662,7 +663,9 @@ void MainComponent::refreshStatus()
                  + juce::String (engine.getSong().orderLen) + ")";
     }
 
-    statusLabel.setText ("CH " + juce::String (patternEditor.getCursorChannel() + 1)
+    const int cursorCh = patternEditor.getCursorChannel();
+    statusLabel.setText (TrackStyle::nameOr (engine.getSong(), cursorCh,
+                                             "CH " + juce::String (cursorCh + 1))
                              + "   |   " + pos + "   |   " + device,
                          juce::dontSendNotification);
 }

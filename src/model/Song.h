@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <string>
 #include "model/EffectCommands.h"
 #include "model/Pattern.h"
 
@@ -71,6 +72,12 @@ public:
 
     // CC slot table (A..H per track), values 0..127
     uint8_t ccSlots[kCcTracks][FxCmd::kNumSlots] = {};
+
+    // track identity (message thread only — the audio thread never reads
+    // these): empty name = default "CH n", colour 0 = theme default (ARGB)
+    static constexpr int kMaxTrackNameLen = 24;
+    std::string trackNames[kCcTracks];
+    uint32_t    trackColors[kCcTracks] = {};
 
 private:
     std::unique_ptr<Pattern> patterns[kMaxPatterns];
