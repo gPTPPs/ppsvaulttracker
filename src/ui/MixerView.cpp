@@ -1,6 +1,79 @@
 #include "ui/MixerView.h"
 #include "ui/RVLookAndFeel.h"
 
+// Per-track CC slot editor (command letters A..H -> controller numbers),
+// shown in a CallOutBox from the strip's CC button. Writes straight into
+// Song::ccSlots on the message thread (single bytes, benign race by design).
+class CcSlotsPanel : public juce::Component
+{
+public:
+    CcSlotsPanel (Song& s, int trackIndex) : song (s), track (trackIndex)
+    {
+        title.setText ("CC slots - CH " + juce::String (track + 1), juce::dontSendNotification);
+        title.setFont (juce::Font (juce::FontOptions (13.0f)).boldened());
+        title.setColour (juce::Label::textColourId, RV::cyan);
+        addAndMakeVisible (title);
+
+        for (int i = 0; i < FxCmd::kNumSlots; ++i)
+        {
+            auto& r = rows[i];
+
+            r.letter.setText (juce::String::charToString ((juce::juce_wchar) ('A' + i)),
+                              juce::dontSendNotification);
+            r.letter.setColour (juce::Label::textColourId, RV::magenta);
+            addAndMakeVisible (r.letter);
+
+            r.cc.setSliderStyle (juce::Slider::IncDecButtons);
+            r.cc.setRange (0.0, 127.0, 1.0);
+            r.cc.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 22);
+            r.cc.setValue ((double) song.ccSlots[track][i], juce::dontSendNotification);
+            r.cc.setWantsKeyboardFocus (false);
+            for (auto* child : r.cc.getChildren())
+                child->setWantsKeyboardFocus (false);   // IncDec buttons steal focus (phase-4 lesson)
+            r.cc.onValueChange = [this, i]
+            {
+                song.ccSlots[track][i] = (uint8_t) (int) rows[i].cc.getValue();
+                refreshName (i);
+            };
+            addAndMakeVisible (r.cc);
+
+            r.name.setColour (juce::Label::textColourId, RV::textDim);
+            addAndMakeVisible (r.name);
+            refreshName (i);
+        }
+
+        setSize (250, 34 + FxCmd::kNumSlots * 26 + 6);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (8, 6);
+        title.setBounds (area.removeFromTop (24));
+        for (auto& r : rows)
+        {
+            auto line = area.removeFromTop (26).reduced (0, 2);
+            r.letter.setBounds (line.removeFromLeft (20));
+            r.cc.setBounds (line.removeFromLeft (108));
+            r.name.setBounds (line);
+        }
+    }
+
+private:
+    void refreshName (int i)
+    {
+        const int cc = (int) song.ccSlots[track][i];
+        const char* known = FxCmd::ccName (cc);
+        rows[i].name.setText (known != nullptr ? juce::String (known) : "CC " + juce::String (cc),
+                              juce::dontSendNotification);
+    }
+
+    struct Row { juce::Label letter, name; juce::Slider cc; };
+    Song& song;
+    int track;
+    juce::Label title;
+    Row rows[FxCmd::kNumSlots];
+};
+
 MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstance*)> showEditorFn)
     : engine (e), showEditor (std::move (showEditorFn))
 {
@@ -43,6 +116,11 @@ MixerView::MixerView (HostEngine& e, std::function<void (juce::AudioPluginInstan
             s.soloBtn.setWantsKeyboardFocus (false);
             s.soloBtn.onClick = [this, ch, &s] { engine.setChannelSolo (ch, s.soloBtn.getToggleState()); };
             addAndMakeVisible (s.soloBtn);
+
+            s.ccBtn.setWantsKeyboardFocus (false);
+            s.ccBtn.setTooltip ("Effect-column CC slots (A-H) for this track");
+            s.ccBtn.onClick = [this, ch] { showCcSlotsFor (ch); };
+            addAndMakeVisible (s.ccBtn);
         }
 
         for (int f = 0; f < HostEngine::kMaxInserts; ++f)
@@ -111,7 +189,7 @@ void MixerView::resized()
         const bool shown = i == kMaster || i < active;
         for (auto* c : { (juce::Component*) &s.title, (juce::Component*) &s.instBtn,
                          (juce::Component*) &s.muteBtn, (juce::Component*) &s.soloBtn,
-                         (juce::Component*) &s.gain,
+                         (juce::Component*) &s.ccBtn, (juce::Component*) &s.gain,
                          (juce::Component*) &s.fxBtn[0], (juce::Component*) &s.fxBtn[1] })
             c->setVisible (shown);
         if (! shown)
@@ -134,8 +212,9 @@ void MixerView::resized()
         if (i != kMaster)
         {
             auto ms = r.removeFromTop (22);
-            s.muteBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 2).reduced (1, 0));
-            s.soloBtn.setBounds (ms.reduced (1, 0));
+            s.muteBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 3).reduced (1, 0));
+            s.soloBtn.setBounds (ms.removeFromLeft (ms.getWidth() / 2).reduced (1, 0));
+            s.ccBtn.setBounds (ms.reduced (1, 0));
         }
         else
             r.removeFromTop (22);
@@ -234,6 +313,13 @@ void MixerView::refreshLabels()
             s.fxBtn[f].setButtonText (name.isNotEmpty() ? name : "+ FX");
         }
     }
+}
+
+void MixerView::showCcSlotsFor (int ch)
+{
+    auto panel = std::make_unique<CcSlotsPanel> (engine.getSong(), ch);
+    juce::CallOutBox::launchAsynchronously (std::move (panel),
+                                            strips[ch].ccBtn.getScreenBounds(), nullptr);
 }
 
 void MixerView::loadInstrumentFor (int ch)

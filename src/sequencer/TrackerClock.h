@@ -27,8 +27,9 @@ public:
         speed = newSpeed;
     }
 
-    double samplesPerRow() const { return sampleRate * 2.5 / bpm * speed; }
-    int getCurrentRow() const    { return row; }
+    double samplesPerTick() const { return sampleRate * 2.5 / bpm; }
+    double samplesPerRow() const  { return samplesPerTick() * speed; }
+    int getCurrentRow() const     { return row; }
 
     // 0..1 position inside the current row — the live-recording quantizer
     // rounds to the nearest row with this

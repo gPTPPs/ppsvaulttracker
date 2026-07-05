@@ -8,7 +8,8 @@
 namespace MidiExport
 {
     inline constexpr int kPpq = 960;
-    inline int rowTicks (int speed) { return 40 * speed; }
+    inline constexpr int kTickTicks = 40;   // one tracker tick in MIDI ticks
+    inline int rowTicks (int speed) { return kTickTicks * speed; }
 
     juce::MidiFile songToMidi (const Song&, double bpm, int speed,
                                const juce::StringArray& trackNames);

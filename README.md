@@ -23,6 +23,11 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
   song mode with order list
 - **Live MIDI recording** — from the virtual keyboard or a hardware MIDI
   controller, quantized to the nearest row, with metronome and pre-count
+- **Effect column = native MIDI** — `Axx`–`Hxx` send the CC mapped to that
+  per-track slot (defaults: cutoff, resonance, mod wheel, volume, pan,
+  reverb, chorus, sustain — editable from the mixer's CC button), `Pxx`
+  pitch bend, `Nxx` note delay and `Kxx` note cut in ticks. No internal DSP:
+  automation is portable, it exports as plain CC in the `.mid`
 - **Mixer** — faders, mute/solo, VU meters per channel and master
 - **Projects** — human-readable `.ubt` folder format (JSON + plugin
   states) with rotating autosave backups

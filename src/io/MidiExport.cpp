@@ -37,18 +37,40 @@ juce::MidiFile MidiExport::songToMidi (const Song& song, double bpm, int speed,
             {
                 const Cell& c = p->at (r, ch);
                 const auto tick = (double) ((rowBase + r) * rt);
+                const uint8_t fx = FxCmd::sanitize (c.effect);
+                const int fxVal = juce::jmin ((int) c.effectValue, 127);
+
+                // effect column -> native MIDI, mirroring playback
+                if (FxCmd::isSlot (fx))
+                    seq.addEvent (juce::MidiMessage::controllerEvent (1,
+                                      (int) song.ccForSlot (ch, FxCmd::slotIndex (fx)), fxVal), tick);
+                else if (fx == FxCmd::kPitchBend)
+                    seq.addEvent (juce::MidiMessage::pitchWheel (1, fxVal << 7), tick);
+
+                // Nxx delays the whole cell by x ticks (one tracker tick = kTickTicks)
+                double cellTick = tick;
+                if (fx == FxCmd::kNoteDelay && (c.hasNote() || c.isNoteOff()))
+                    cellTick += juce::jmin (fxVal, speed - 1) * kTickTicks;
 
                 // tracker semantics: next note (or "===") ends the previous one
                 if ((c.hasNote() || c.isNoteOff()) && activeNote >= 0)
                 {
-                    seq.addEvent (juce::MidiMessage::noteOff (1, activeNote), tick);
+                    seq.addEvent (juce::MidiMessage::noteOff (1, activeNote), cellTick);
                     activeNote = -1;
                 }
                 if (c.hasNote())
                 {
                     const auto vel = (juce::uint8) juce::jlimit (1, 127, (int) c.volume * 2);
-                    seq.addEvent (juce::MidiMessage::noteOn (1, (int) c.note, vel), tick);
+                    seq.addEvent (juce::MidiMessage::noteOn (1, (int) c.note, vel), cellTick);
                     activeNote = c.note;
+                }
+
+                // Kxx stops whatever plays on this channel at tick x
+                if (fx == FxCmd::kNoteCut && activeNote >= 0)
+                {
+                    seq.addEvent (juce::MidiMessage::noteOff (1, activeNote),
+                                  tick + juce::jmin (fxVal, speed - 1) * kTickTicks);
+                    activeNote = -1;
                 }
             }
             rowBase += p->getNumRows();

@@ -153,6 +153,85 @@ static void testMidiExport()
     CHECK (tempoOk);
 }
 
+static void testCcSlotsIo()
+{
+    // custom slots survive the JSON round-trip
+    Song original = makeSong();
+    original.ccSlots[0][0] = 21;
+    original.ccSlots[15][7] = 127;
+
+    const auto json = juce::JSON::toString (ProjectIO::songToVar (original));
+    Song restored;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (json), restored).isEmpty());
+    CHECK (restored.ccForSlot (0, 0) == 21);
+    CHECK (restored.ccForSlot (15, 7) == 127);
+    CHECK (restored.ccForSlot (1, 0) == 74);   // untouched slot keeps its default
+
+    // pre-effect-column .ubt (no ccSlots property) -> defaults, not an error
+    const auto legacy = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ] })");
+    Song fromLegacy;
+    CHECK (ProjectIO::songFromVar (legacy, fromLegacy).isEmpty());
+    CHECK (fromLegacy.ccForSlot (0, 0) == 74);
+
+    // malformed table is fatal, hostile values are clamped
+    const auto bad = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ], "ccSlots": "nope" })");
+    Song s;
+    CHECK (ProjectIO::songFromVar (bad, s).isNotEmpty());
+
+    const auto hostile = juce::JSON::parse (R"({
+        "numChannels": 1, "patterns": [ { "rows": 8 } ],
+        "ccSlots": [ [9999, -5] ] })");
+    CHECK (ProjectIO::songFromVar (hostile, s).isEmpty());
+    CHECK (s.ccForSlot (0, 0) == 127 && s.ccForSlot (0, 1) == 0);   // clamped
+    CHECK (s.ccForSlot (0, 2) == 1);                                // rest = defaults
+}
+
+static void testMidiExportEffects()
+{
+    Song s;
+    s.setNumChannels (1);
+    s.ccSlots[0][1] = 71;   // slot B
+
+    // row 0: note + B50 (CC71 = 0x50 at the row start)
+    s.getPattern (0)->at (0, 0) = { 60, 0, 64, FxCmd::kSlotA + 1, 0x50 };
+    // row 2: P40 = centre pitch bend, no note
+    s.getPattern (0)->at (2, 0) = { 0, 0, 64, FxCmd::kPitchBend, 0x40 };
+    // row 4: new note delayed 3 ticks (kill of the old one moves with it)
+    s.getPattern (0)->at (4, 0) = { 62, 0, 64, FxCmd::kNoteDelay, 3 };
+    // row 6: cut at tick 2
+    s.getPattern (0)->at (6, 0) = { 0, 0, 64, FxCmd::kNoteCut, 2 };
+
+    const auto mf = MidiExport::songToMidi (s, 125.0, 6, { "T" });
+    const int rt = MidiExport::rowTicks (6);
+    const int tk = MidiExport::kTickTicks;
+
+    bool ccOk = false, bendOk = false, delayedOnOk = false, delayedOffOk = false, cutOk = false;
+    const auto* t = mf.getTrack (1);
+    for (int i = 0; i < t->getNumEvents(); ++i)
+    {
+        const auto& m = t->getEventPointer (i)->message;
+        const auto at = m.getTimeStamp();
+        if (m.isController() && m.getControllerNumber() == 71
+            && m.getControllerValue() == 0x50 && at == 0.0)
+            ccOk = true;
+        if (m.isPitchWheel() && m.getPitchWheelValue() == 0x2000 && at == 2.0 * rt)
+            bendOk = true;
+        if (m.isNoteOn() && m.getNoteNumber() == 62 && at == 4.0 * rt + 3 * tk)
+            delayedOnOk = true;
+        if (m.isNoteOff() && m.getNoteNumber() == 60 && at == 4.0 * rt + 3 * tk)
+            delayedOffOk = true;
+        if (m.isNoteOff() && m.getNoteNumber() == 62 && at == 6.0 * rt + 2 * tk)
+            cutOk = true;
+    }
+    CHECK (ccOk);
+    CHECK (bendOk);
+    CHECK (delayedOnOk);
+    CHECK (delayedOffOk);
+    CHECK (cutOk);
+}
+
 static void testModMapping()
 {
     using namespace ModImportMapping;
@@ -176,6 +255,8 @@ int main()
     testRejectsGarbage();
     testClampsHostileValues();
     testMidiExport();
+    testCcSlotsIo();
+    testMidiExportEffects();
     testModMapping();
 
     if (failures == 0)

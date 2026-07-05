@@ -1,9 +1,12 @@
-// Unit tests for the JUCE-free core: Cell/Pattern model and the FT2 clock.
+// Unit tests for the JUCE-free core: Cell/Pattern model, effect commands,
+// CC slot table and the FT2 clock.
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include "model/Cell.h"
+#include "model/EffectCommands.h"
 #include "model/Pattern.h"
+#include "model/Song.h"
 #include "sequencer/TrackerClock.h"
 
 static int failures = 0;
@@ -107,6 +110,42 @@ static void testClockPhase()
     CHECK (std::abs (c.phaseInRow() - 0.1) < 1e-9);
 }
 
+static void testFxCommands()
+{
+    using namespace FxCmd;
+    CHECK (fromChar ('a') == kSlotA && fromChar ('A') == kSlotA);
+    CHECK (fromChar ('h') == kSlotH);
+    CHECK (fromChar ('p') == kPitchBend);
+    CHECK (fromChar ('n') == kNoteDelay);
+    CHECK (fromChar ('k') == kNoteCut);
+    CHECK (fromChar ('.') == kNone && fromChar ('0') == kNone);
+    CHECK (fromChar ('z') == -1 && fromChar ('5') == -1 && fromChar (' ') == -1);
+
+    // display letter and key entry agree for every command
+    for (int fx = kSlotA; fx < kNumCommands; ++fx)
+        CHECK (fromChar (letter ((uint8_t) fx)) == fx);
+    CHECK (letter (kNone) == 0);
+
+    CHECK (slotIndex (kSlotA) == 0 && slotIndex (kSlotH) == 7);
+    CHECK (slotIndex (kPitchBend) == -1 && slotIndex (kNone) == -1);
+    CHECK (sanitize (200) == kNone && sanitize (kNumCommands) == kNone);
+    CHECK (sanitize (kNoteCut) == kNoteCut);
+}
+
+static void testCcSlotTable()
+{
+    Song s;
+    CHECK (s.ccForSlot (0, 0) == 74);    // A = cutoff
+    CHECK (s.ccForSlot (15, 7) == 64);   // H = sustain
+    CHECK (s.ccForSlot (-4, 99) == s.ccForSlot (0, 7));   // clamped access
+
+    s.ccSlots[3][2] = 11;
+    CHECK (s.ccForSlot (3, 2) == 11);
+    CHECK (s.ccForSlot (4, 2) == 1);     // other tracks untouched
+    s.resetCcSlots();
+    CHECK (s.ccForSlot (3, 2) == 1);
+}
+
 static void testClockOffsetsInsideBuffer()
 {
     TrackerClock c;
@@ -123,6 +162,8 @@ int main()
 {
     testCell();
     testPattern();
+    testFxCommands();
+    testCcSlotTable();
     testClockMath();
     testClockAdvance();
     testClockLoop();

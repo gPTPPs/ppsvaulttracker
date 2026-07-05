@@ -169,9 +169,11 @@ void PatternEditor::paint (juce::Graphics& g)
             g.drawText (empty ? juce::String ("..") : hex2 (c.volume),
                         x0 + kSubX[subVolHi], y, 20, kRowH, juce::Justification::centredLeft);
 
-            const bool hasFx = c.effect != 0 || c.effectValue != 0;
+            const bool hasFx = c.effect != FxCmd::kNone || c.effectValue != 0;
+            const char fxLetter = FxCmd::letter (c.effect);
             g.setColour (hasFx ? normal : dim);
-            g.drawText (hasFx ? juce::String::toHexString (c.effect).toUpperCase() + hex2 (c.effectValue)
+            g.drawText (hasFx ? (fxLetter != 0 ? juce::String::charToString (fxLetter)
+                                               : juce::String (".")) + hex2 (c.effectValue)
                               : juce::String ("..."),
                         x0 + kSubX[subFx], y, 30, kRowH, juce::Justification::centredLeft);
         }
@@ -347,9 +349,20 @@ bool PatternEditor::keyPressed (const juce::KeyPress& kp)
             return true;
         }
     }
+    else if (cursorSub == subFx)
+    {
+        // command letters only (A-H = CC slots, P = bend, N = delay, K = cut,
+        // '.' or '0' clears) — not hex: C/D/E/F must mean slots, not digits
+        const int cmd = FxCmd::fromChar ((char) ch);
+        if (cmd >= 0)
+        {
+            enterFxCommand ((uint8_t) cmd);
+            return true;
+        }
+    }
     else
     {
-        // hex entry in instrument / volume / effect columns
+        // hex entry in instrument / volume / effect-value columns
         const int v = juce::CharacterFunctions::getHexDigitValue (ch);
         if (v >= 0)
         {
@@ -561,11 +574,23 @@ void PatternEditor::enterHexDigit (int value)
         case subInstrLo: setNibble (c.instrument, false); break;
         case subVolHi:   setNibble (c.volume, true);  c.volume = (uint8_t) juce::jmin ((int) c.volume, 64); break;
         case subVolLo:   setNibble (c.volume, false); c.volume = (uint8_t) juce::jmin ((int) c.volume, 64); break;
-        case subFx:      c.effect = (uint8_t) value;      break;
-        case subFxValHi: setNibble (c.effectValue, true);  break;
-        case subFxValLo: setNibble (c.effectValue, false); break;
+        case subFxValHi: setNibble (c.effectValue, true);
+                         c.effectValue = (uint8_t) juce::jmin ((int) c.effectValue, 127); break;
+        case subFxValLo: setNibble (c.effectValue, false);
+                         c.effectValue = (uint8_t) juce::jmin ((int) c.effectValue, 127); break;
         default: break;
     }
+    undo.commit (*p);
+    advanceAfterEntry();
+}
+
+void PatternEditor::enterFxCommand (uint8_t cmd)
+{
+    if (! recEnabled)
+        return;
+    auto* p = pattern();
+    undo.begin (*p, { cursorRow, cursorRow, cursorChannel, cursorChannel });
+    p->at (cursorRow, cursorChannel).effect = cmd;
     undo.commit (*p);
     advanceAfterEntry();
 }

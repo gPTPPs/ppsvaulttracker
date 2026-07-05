@@ -51,6 +51,7 @@ private:
     void enterNote (int midiNote);
     void enterNoteOff();
     void enterHexDigit (int value);
+    void enterFxCommand (uint8_t cmd);
     void deleteAtCursor();
     void previewNote (int keyCode, int midiNote);
     PatternOps::Selection currentRegion() const;   // selection if active, else cursor cell

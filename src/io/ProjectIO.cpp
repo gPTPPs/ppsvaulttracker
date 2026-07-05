@@ -33,6 +33,16 @@ juce::var ProjectIO::songToVar (const Song& s)
         ord.add (s.order[i]);
     root->setProperty ("order", juce::var (ord));
 
+    juce::Array<juce::var> ccTable;
+    for (int t = 0; t < Song::kCcTracks; ++t)
+    {
+        juce::Array<juce::var> track;
+        for (int slot = 0; slot < FxCmd::kNumSlots; ++slot)
+            track.add ((int) s.ccSlots[t][slot]);
+        ccTable.add (juce::var (track));
+    }
+    root->setProperty ("ccSlots", juce::var (ccTable));
+
     return juce::var (root);
 }
 
@@ -87,8 +97,8 @@ juce::String ProjectIO::songFromVar (const juce::var& v, Song& out)
                                                                            : juce::jlimit (0, 127, note));
                 cell.instrument  = (uint8_t) juce::jlimit (0, 255, (int) e->getReference (3));
                 cell.volume      = (uint8_t) juce::jlimit (0, 64,  (int) e->getReference (4));
-                cell.effect      = (uint8_t) juce::jlimit (0, 15,  (int) e->getReference (5));
-                cell.effectValue = (uint8_t) juce::jlimit (0, 255, (int) e->getReference (6));
+                cell.effect      = FxCmd::sanitize ((uint8_t) juce::jlimit (0, 255, (int) e->getReference (5)));
+                cell.effectValue = (uint8_t) juce::jlimit (0, 127, (int) e->getReference (6));
                 p->at (r, c) = cell;
             }
         }
@@ -104,6 +114,24 @@ juce::String ProjectIO::songFromVar (const juce::var& v, Song& out)
     {
         out.orderLen = 1;
         out.order[0] = 0;
+    }
+
+    // CC slot table: optional (older .ubt files keep the defaults), but if
+    // present it must be an array of per-track arrays
+    if (const auto& ccv = v.getProperty ("ccSlots", {}); ! ccv.isVoid())
+    {
+        const auto* ccTable = ccv.getArray();
+        if (ccTable == nullptr)
+            return "ccSlots: not an array";
+
+        for (int t = 0; t < juce::jmin ((int) ccTable->size(), Song::kCcTracks); ++t)
+        {
+            const auto* track = ccTable->getReference (t).getArray();
+            if (track == nullptr)
+                return "ccSlots: track " + juce::String (t) + " is not an array";
+            for (int slot = 0; slot < juce::jmin ((int) track->size(), FxCmd::kNumSlots); ++slot)
+                out.ccSlots[t][slot] = (uint8_t) juce::jlimit (0, 127, (int) track->getReference (slot));
+        }
     }
 
     return {};

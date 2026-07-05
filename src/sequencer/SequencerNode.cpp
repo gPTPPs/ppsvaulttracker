@@ -1,4 +1,36 @@
 #include "sequencer/SequencerNode.h"
+#include "model/EffectCommands.h"
+
+// deliver deferred note events that fall inside this block, age the rest
+void SequencerNode::flushPending (juce::MidiBuffer& midi, int numSamples)
+{
+    int keep = 0;
+    for (int i = 0; i < numPendingMidi; ++i)
+    {
+        auto e = pendingMidi[i];
+        if (e.samplesUntil < numSamples)
+        {
+            midi.addEvent (e.noteOn ? juce::MidiMessage::noteOn ((int) e.midiCh, (int) e.note, e.vel)
+                                    : juce::MidiMessage::noteOff ((int) e.midiCh, (int) e.note),
+                           e.samplesUntil);
+        }
+        else
+        {
+            e.samplesUntil -= numSamples;
+            pendingMidi[keep++] = e;
+        }
+    }
+    numPendingMidi = keep;
+}
+
+void SequencerNode::cancelPending (juce::MidiBuffer& midi)
+{
+    for (int i = 0; i < numPendingMidi; ++i)
+        if (! pendingMidi[i].noteOn)   // pending cuts must still silence their note
+            midi.addEvent (juce::MidiMessage::noteOff ((int) pendingMidi[i].midiCh,
+                                                       (int) pendingMidi[i].note), 0);
+    numPendingMidi = 0;
+}
 
 void SequencerNode::triggerClick (int offset, bool accent)
 {
@@ -58,11 +90,13 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
         curOrderPos = 0;
         precountLeft = precountRowsCfg.load();
         precountCounter = 0.0;
+        numPendingMidi = 0;
         for (auto& n : activeNotes)
             n = 0;
     }
     else if (! playNow && wasPlaying)
     {
+        cancelPending (midi);
         killAllNotes (0);
         uiRow.store (-1);
         uiOrderPos.store (-1);
@@ -110,6 +144,19 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
 
     const bool metro = metroOn.load();
 
+    flushPending (midi, numSamples);
+
+    // note events land in this block or join the pending queue (Nxx / Kxx)
+    auto emitOrDefer = [&] (bool on, int midiCh, int note, juce::uint8 vel, int at)
+    {
+        if (at < numSamples)
+            midi.addEvent (on ? juce::MidiMessage::noteOn (midiCh, note, vel)
+                              : juce::MidiMessage::noteOff (midiCh, note), at);
+        else if (numPendingMidi < kMaxPendingMidi)
+            pendingMidi[numPendingMidi++] = { at - numSamples, on,
+                                              (uint8_t) midiCh, (uint8_t) note, vel };
+    };
+
     clock.advance (numSamples, pat->getNumRows(), [&] (int row, int offset)
     {
         // pattern boundary: advance the order list (song mode) or re-read the
@@ -135,22 +182,48 @@ void SequencerNode::processBlock (juce::AudioBuffer<float>& audio, juce::MidiBuf
             triggerClick (offset, row % 16 == 0);
 
         const int numChannels = juce::jmin (pat->getNumChannels(), 16);
+        const int speedNow = juce::jmax (1, speedAtomic.load());
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const Cell c = pat->at (row, ch);   // by value: one coherent read
             const int midiCh = ch + 1;
+            const uint8_t fx = FxCmd::sanitize (c.effect);
+            const int fxVal = juce::jmin ((int) c.effectValue, 127);
+
+            // CC and pitch bend fire at the row start, even without a note
+            if (FxCmd::isSlot (fx))
+                midi.addEvent (juce::MidiMessage::controllerEvent (midiCh,
+                                   (int) song->ccForSlot (ch, FxCmd::slotIndex (fx)), fxVal),
+                               offset);
+            else if (fx == FxCmd::kPitchBend)
+                midi.addEvent (juce::MidiMessage::pitchWheel (midiCh, fxVal << 7), offset);
+
+            // Nxx delays the whole cell: previous-note kill AND trigger move together
+            int cellAt = offset;
+            if (fx == FxCmd::kNoteDelay && (c.hasNote() || c.isNoteOff()))
+                cellAt = offset + (int) ((double) juce::jmin (fxVal, speedNow - 1)
+                                         * clock.samplesPerTick());
 
             if ((c.hasNote() || c.isNoteOff()) && activeNotes[ch] != 0)
             {
-                midi.addEvent (juce::MidiMessage::noteOff (midiCh, activeNotes[ch] - 1), offset);
+                emitOrDefer (false, midiCh, activeNotes[ch] - 1, 0, cellAt);
                 activeNotes[ch] = 0;
             }
 
             if (c.hasNote())
             {
                 const auto vel = (juce::uint8) juce::jlimit (1, 127, (int) c.volume * 2);
-                midi.addEvent (juce::MidiMessage::noteOn (midiCh, (int) c.note, vel), offset);
+                emitOrDefer (true, midiCh, (int) c.note, vel, cellAt);
                 activeNotes[ch] = (int) c.note + 1;
+            }
+
+            // Kxx: whatever plays on this channel (incl. a note from this row) stops at tick x
+            if (fx == FxCmd::kNoteCut && activeNotes[ch] != 0)
+            {
+                const int cutAt = offset + (int) ((double) juce::jmin (fxVal, speedNow - 1)
+                                                  * clock.samplesPerTick());
+                emitOrDefer (false, midiCh, activeNotes[ch] - 1, 0, cutAt);
+                activeNotes[ch] = 0;
             }
         }
 

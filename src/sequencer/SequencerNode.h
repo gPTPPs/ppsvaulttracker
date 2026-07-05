@@ -100,6 +100,14 @@ private:
     int  curPattern = 0;
     int  activeNotes[Pattern::kMaxChannels] = {};   // 0 = none, else note + 1
 
+    // note events pushed past the current block by Nxx (delay) / Kxx (cut)
+    struct PendingMidi { int samplesUntil; bool noteOn; uint8_t midiCh, note, vel; };
+    static constexpr int kMaxPendingMidi = 64;
+    PendingMidi pendingMidi[kMaxPendingMidi];
+    int numPendingMidi = 0;
+    void flushPending (juce::MidiBuffer&, int numSamples);
+    void cancelPending (juce::MidiBuffer&);   // on stop: emit note-offs now, drop note-ons
+
     // click synth + pre-count (audio thread only)
     struct PendingClick { int offset; bool accent; };
     PendingClick pendingClicks[8];

@@ -82,10 +82,13 @@ void HostEngine::rebuildConnections()
         graph.addConnection ({ { s.router->nodeID, midiIdx }, { s.instrument->nodeID, midiIdx } });
 
         // audio: instrument -> inserts... -> strip
+        // MIDI: the router also feeds each insert, so the effect column can
+        // automate FX plugins by CC (inserts without a MIDI input just ignore it)
         Node::Ptr prev = s.instrument;
         for (auto& ins : s.inserts)
             if (ins != nullptr)
             {
+                graph.addConnection ({ { s.router->nodeID, midiIdx }, { ins->nodeID, midiIdx } });
                 for (int a = 0; a < 2; ++a)
                     graph.addConnection ({ { prev->nodeID, a }, { ins->nodeID, a } });
                 prev = ins;

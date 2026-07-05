@@ -30,12 +30,13 @@ private:
         juce::Label title;
         juce::TextButton instBtn { "Inst..." };
         juce::TextButton fxBtn[HostEngine::kMaxInserts];
-        juce::TextButton muteBtn { "M" }, soloBtn { "S" };
+        juce::TextButton muteBtn { "M" }, soloBtn { "S" }, ccBtn { "CC" };
         juce::Slider gain;
     };
 
     void timerCallback() override;
     void refreshLabels();
+    void showCcSlotsFor (int ch);
     void loadInstrumentFor (int ch);
     void addInsertFor (int chOrMaster);
     void showPluginMenu (juce::AudioPluginInstance*, std::function<void()> removeFn, juce::Component* target);
