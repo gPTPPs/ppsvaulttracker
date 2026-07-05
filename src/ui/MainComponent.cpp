@@ -1,4 +1,5 @@
 #include "ui/MainComponent.h"
+#include "AppVersion.h"
 #include "io/ModImport.h"
 
 MainComponent::MainComponent()
@@ -513,10 +514,11 @@ void MainComponent::importModuleFlow()
 
 void MainComponent::updateTitle()
 {
+    const auto base = "PPsVaultTracker " + AppVersion::display();
     if (auto* dw = dynamic_cast<juce::DocumentWindow*> (getTopLevelComponent()))
         dw->setName (engine.hasProject()
-                         ? "PPsVaultTracker - " + engine.getProjectDir().getFileNameWithoutExtension()
-                         : juce::String ("PPsVaultTracker"));
+                         ? base + " - " + engine.getProjectDir().getFileNameWithoutExtension()
+                         : base);
 }
 
 void MainComponent::paint (juce::Graphics& g)

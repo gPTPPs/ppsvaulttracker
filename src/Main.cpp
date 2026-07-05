@@ -1,6 +1,8 @@
 #include <JuceHeader.h>
+#include "AppVersion.h"
 #include "ui/MainComponent.h"
 #include "ui/RVLookAndFeel.h"
+#include "ui/SplashScreen.h"
 
 class PPsVaultTrackerApplication : public juce::JUCEApplication
 {
@@ -13,11 +15,14 @@ public:
     {
         lookAndFeel = std::make_unique<RVLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
-        mainWindow = std::make_unique<MainWindow> (getApplicationName());
+        splash = std::make_unique<RVSplash> (AppVersion::display());
+        splash->onFinished = [this] { splash = nullptr; };
+        mainWindow = std::make_unique<MainWindow> (getApplicationName() + " " + AppVersion::display());
     }
 
     void shutdown() override
     {
+        splash = nullptr;
         mainWindow = nullptr;
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
         lookAndFeel = nullptr;
@@ -54,6 +59,7 @@ public:
 
 private:
     std::unique_ptr<RVLookAndFeel> lookAndFeel;
+    std::unique_ptr<RVSplash> splash;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

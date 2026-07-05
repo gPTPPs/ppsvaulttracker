@@ -38,9 +38,16 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
   notes, no samples)
 - **RetroVault synthwave theme** — Orbitron, cyan/magenta on deep blue
 
-> 🚧 **Status: phase 6 (polish) in progress.** Remaining before v1: splash
-> screen, bundled demo song, and (time permitting) the OUTRUN/LATENT
-> visualizers.
+> ✨ **Status: v1.0.0-beta.** The engine and workflow are feature-complete.
+> On the roadmap for later releases: a bundled demo song, the OUTRUN/LATENT
+> visualizers from the RetroVault MOD player, and UI refinements.
+
+## Download
+
+Grab the portable Windows build from the
+[latest release](https://github.com/gPTPPs/ppsvaulttracker/releases) —
+unzip and run, nothing to install. MP3 export needs a `lame.exe`
+(e.g. `winget install LAME.LAME`); the app asks for its location once.
 
 ## Building
 
