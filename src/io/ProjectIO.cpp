@@ -20,6 +20,8 @@ juce::var ProjectIO::songToVar (const Song& s)
         const auto* p = s.getPattern (pi);
         auto* po = new juce::DynamicObject();
         po->setProperty ("rows", p->getNumRows());
+        if (! p->name.empty())
+            po->setProperty ("name", juce::String::fromUTF8 (p->name.c_str()));
 
         juce::Array<juce::var> cells;
         for (int r = 0; r < p->getNumRows(); ++r)
@@ -108,6 +110,8 @@ juce::String ProjectIO::songFromVar (const juce::var& v, Song& out)
         Pattern* p = pi == 0 ? out.getPattern (0) : out.getPattern (out.addPattern (rows));
         p->setNumRows (rows);
         p->setNumChannels (nc);
+        if (const auto& nv = pv.getProperty ("name", {}); nv.isString())
+            p->name = sanitizeTrackName (nv.toString()).toStdString();   // same policy as track names
 
         if (const auto* cells = pv.getProperty ("cells", {}).getArray())
         {

@@ -90,6 +90,11 @@ MainComponent::MainComponent()
         songModeBtn.setButtonText (seq.isSongMode() ? "Song" : "Pattern");
     });
 
+    // view selector (also F12): label = current view
+    viewBtn.setWantsKeyboardFocus (false);
+    viewBtn.onClick = [this] { setView (! showingArrangement); };
+    addAndMakeVisible (viewBtn);
+
     auto setupIncDec = [this] (juce::Slider& s, double min, double max, double value,
                                std::function<void (double)> apply)
     {
@@ -130,16 +135,7 @@ MainComponent::MainComponent()
     };
     addAndMakeVisible (addPatBtn);
 
-    orderEdit.setText ("0");
-    orderEdit.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 15.0f, juce::Font::plain)));
-    orderEdit.onReturnKey = [this] { applyOrderFromText(); };
-    addAndMakeVisible (orderEdit);
-
-    orderApplyBtn.setWantsKeyboardFocus (false);
-    orderApplyBtn.onClick = [this] { applyOrderFromText(); };
-    addAndMakeVisible (orderApplyBtn);
-
-    for (auto* l : { &bpmLabel, &speedLabel, &stepLabel, &octaveLabel, &chanLabel, &patLabel, &orderLabel })
+    for (auto* l : { &bpmLabel, &speedLabel, &stepLabel, &octaveLabel, &chanLabel, &patLabel })
     {
         l->setJustificationType (juce::Justification::centredRight);
         l->setColour (juce::Label::textColourId, RV::textDim);
@@ -157,6 +153,13 @@ MainComponent::MainComponent()
     mixerViewport.setScrollBarsShown (false, true);
     mixerViewport.setScrollBarThickness (10);
     addAndMakeVisible (mixerViewport);
+
+    // arrangement view (hidden until toggled)
+    arrViewport.setViewedComponent (&arrangement, false);
+    arrViewport.setScrollBarsShown (false, true);
+    arrViewport.setScrollBarThickness (10);
+    addChildComponent (arrViewport);
+    arrangement.onOpenPattern = [this] { setView (false); };
     patternEditor.onViewChanged = [this]
     {
         mixerViewport.setViewPosition (patternEditor.getFirstChannel() * GridMetrics::kStride, 0);
@@ -349,11 +352,6 @@ void MainComponent::syncFromEngine()
     patSlider.setRange (0.0, juce::jmax (1.0, (double) (engine.getSong().getNumPatterns() - 1)), 1.0);
     patSlider.setValue (0.0, juce::dontSendNotification);
     seq.setEditPatternIndex (0);
-
-    juce::StringArray ord;
-    for (int i = 0; i < engine.getSong().orderLen; ++i)
-        ord.add (juce::String (engine.getSong().order[i]));
-    orderEdit.setText (ord.joinIntoString (" "), juce::dontSendNotification);
 
     songModeBtn.setButtonText (seq.isSongMode() ? "Song" : "Pattern");
     mixer.syncFromEngine();
@@ -608,9 +606,11 @@ void MainComponent::resized()
     place (bar, importBtn, 90);
     audioBtn.setBounds (bar.removeFromRight (110));
 
-    // row 2 — playback: transport | what plays | tempo | click
+    // row 2 — playback: transport | what plays | tempo | click | view (right)
     area.removeFromTop (6);
     auto transport = area.removeFromTop (30);
+    viewBtn.setBounds (transport.removeFromRight (90));
+    transport.removeFromRight (8);
     place (transport, playBtn, 84);
     place (transport, recBtn, 56);
     sep (transport);
@@ -641,14 +641,17 @@ void MainComponent::resized()
     place (songRow, patLabel, 40, 2);
     place (songRow, patSlider, 96, 10);
     place (songRow, addPatBtn, 100);
-    sep (songRow);
-    place (songRow, orderLabel, 52, 2);
-    orderApplyBtn.setBounds (songRow.removeFromRight (84));
-    songRow.removeFromRight (8);
-    orderEdit.setBounds (songRow);
 
     area.removeFromTop (6);
     statusLabel.setBounds (area.removeFromTop (22));
+
+    if (showingArrangement)
+    {
+        arrViewport.setBounds (area);
+        arrangement.setSize (juce::jmax (arrangement.currentIdealWidth(), arrViewport.getWidth()),
+                             arrViewport.getHeight() - arrViewport.getScrollBarThickness());
+        return;
+    }
 
     keyboard.setBounds (area.removeFromBottom (90));
     area.removeFromBottom (6);
@@ -694,21 +697,29 @@ void MainComponent::applyTempo()
     engine.getSequencer().setTempo (bpmSlider.getValue(), (int) speedSlider.getValue());
 }
 
-void MainComponent::applyOrderFromText()
+void MainComponent::setView (bool arrangementMode)
 {
-    juce::StringArray tokens;
-    tokens.addTokens (orderEdit.getText(), " ,;", {});
-    tokens.removeEmptyStrings();
+    showingArrangement = arrangementMode;
+    viewBtn.setButtonText (arrangementMode ? "Arrange" : "Tracker");
+    patternEditor.setVisible (! arrangementMode);
+    mixerViewport.setVisible (! arrangementMode);
+    keyboard.setVisible (! arrangementMode);
+    arrViewport.setVisible (arrangementMode);
+    resized();
+    if (arrangementMode)
+        arrangement.grabKeyboardFocus();
+    else
+        patternEditor.grabKeyboardFocus();
+}
 
-    int entries[Song::kMaxOrder];
-    int count = 0;
-    for (auto& t : tokens)
-        if (count < Song::kMaxOrder)
-            entries[count++] = t.getIntValue();
-
-    if (count > 0)
-        engine.applyOrder (entries, count);
-    patternEditor.grabKeyboardFocus();
+bool MainComponent::keyPressed (const juce::KeyPress& kp)
+{
+    if (kp.getKeyCode() == juce::KeyPress::F12Key)
+    {
+        setView (! showingArrangement);
+        return true;
+    }
+    return false;
 }
 
 void MainComponent::refreshStatus()

@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include <vector>
 #include "model/Cell.h"
 
@@ -27,6 +28,10 @@ public:
 
     Cell&       at (int row, int channel)       { return cells[index (row, channel)]; }
     const Cell& at (int row, int channel) const { return cells[index (row, channel)]; }
+
+    // display name, empty = default "Pn" (message thread only — the audio
+    // thread never reads it)
+    std::string name;
 
 private:
     static int clampRows (int r)     { return r < 1 ? 1 : (r > kMaxRows ? kMaxRows : r); }

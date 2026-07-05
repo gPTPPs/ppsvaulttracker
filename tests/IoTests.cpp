@@ -243,6 +243,36 @@ static void testTrackStyleIo()
     CHECK (ProjectIO::sanitizeTrackName ("") == "");
 }
 
+static void testPatternNames()
+{
+    Song original = makeSong();
+    original.getPattern (0)->name = "Intro";
+    original.getPattern (1)->name = "Drop";
+
+    const auto json = juce::JSON::toString (ProjectIO::songToVar (original));
+    Song restored;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (json), restored).isEmpty());
+    CHECK (restored.getPattern (0)->name == "Intro");
+    CHECK (restored.getPattern (1)->name == "Drop");
+
+    // unnamed pattern emits no "name" property and loads back empty
+    Song plain = makeSong();
+    const auto plainJson = juce::JSON::toString (ProjectIO::songToVar (plain));
+    CHECK (! plainJson.contains ("\"name\""));
+    Song plainBack;
+    CHECK (ProjectIO::songFromVar (juce::JSON::parse (plainJson), plainBack).isEmpty());
+    CHECK (plainBack.getPattern (0)->name.empty());
+
+    // hostile: non-string ignored, junk sanitized like track names
+    const auto hostile = juce::JSON::parse (
+        "{ \"numChannels\": 1, \"patterns\": [ { \"rows\": 8, \"name\": 42 },"
+        "                                      { \"rows\": 8, \"name\": \" In\\ntro  \" } ] }");
+    Song s;
+    CHECK (ProjectIO::songFromVar (hostile, s).isEmpty());
+    CHECK (s.getPattern (0)->name.empty());
+    CHECK (s.getPattern (1)->name == "Intro");
+}
+
 static void testMidiExportEffects()
 {
     Song s;
@@ -312,6 +342,7 @@ int main()
     testMidiExport();
     testCcSlotsIo();
     testTrackStyleIo();
+    testPatternNames();
     testMidiExportEffects();
     testModMapping();
 

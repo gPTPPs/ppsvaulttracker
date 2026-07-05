@@ -3,6 +3,7 @@
 #include "engine/HostEngine.h"
 #include "ui/PatternEditor.h"
 #include "ui/MixerView.h"
+#include "ui/ArrangementView.h"
 #include "ui/PillSlider.h"
 
 // Floating window hosting a plugin's own editor (or a generic one).
@@ -44,6 +45,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;   // F12 = tracker <-> arrangement
 
     // close-button path: prompts when there are unsaved changes
     void confirmAndQuit();
@@ -53,7 +55,7 @@ private:
     void showAudioSettings();
     void showEditorFor (juce::AudioPluginInstance*);
     void applyTempo();
-    void applyOrderFromText();
+    void setView (bool arrangement);   // tracker <-> arrangement (F12 / toolbar)
     void refreshStatus();
     void newProject();
     void openProject();
@@ -93,18 +95,21 @@ private:
     juce::Label bpmLabel { {}, "BPM" }, speedLabel { {}, "Speed" },
                 stepLabel { {}, "Step" }, octaveLabel { {}, "Oct" }, chanLabel { {}, "Ch" };
 
-    // song / order controls
+    // song structure controls (the order list lives in the arrangement view)
     juce::TextButton songModeBtn { "Pattern" },   // mode selector: label = current mode
-                     addPatBtn { "Add Pattern" }, orderApplyBtn { "Set Order" };
+                     addPatBtn { "Add Pattern" };
+    juce::TextButton viewBtn { "Tracker" };       // view selector: label = current view
     PillSlider patSlider;
-    juce::Label patLabel { {}, "Pat" }, orderLabel { {}, "Order" };   // "Pat" like the status bar
-    juce::TextEditor orderEdit;
+    juce::Label patLabel { {}, "Pat" };           // "Pat" like the status bar
+    bool showingArrangement = false;
 
     juce::Label statusLabel;
     juce::Array<juce::Rectangle<int>> toolbarSeparators;   // computed in resized(), drawn in paint()
     PatternEditor patternEditor { engine };
     MixerView mixer { engine, [this] (juce::AudioPluginInstance* p) { showEditorFor (p); } };
     juce::Viewport mixerViewport;   // 17 strips don't fit: horizontal scroll
+    ArrangementView arrangement { engine };
+    juce::Viewport arrViewport;     // long order lists scroll horizontally
     juce::MidiKeyboardComponent keyboard { engine.getKeyboardState(),
                                            juce::MidiKeyboardComponent::horizontalKeyboard };
 
