@@ -121,6 +121,13 @@ void PatternEditor::paint (juce::Graphics& g)
     g.setColour (RV::panelLine);
     g.fillRect (0, headerH() - 2, getWidth(), 1);
 
+    // faint column separators, down the middle of each inter-column gap
+    // (the trailing one closes off the last visible column)
+    g.setColour (RV::gridSep);
+    for (int ch = firstChannel; ch <= lastCh; ++ch)
+        g.fillRect (kRowNumW + (ch - firstChannel) * (kChanW + kChanGap) - 5,
+                    headerH() - 1, 1, getHeight() - headerH() + 1);
+
     g.setFont (mono);
 
     const auto sel = hasSelection
@@ -138,8 +145,12 @@ void PatternEditor::paint (juce::Graphics& g)
 
         if (isPlayhead)
         {
-            g.setColour (RV::magenta.withAlpha (0.16f));
+            // thin highlight: soft band + hairline top/bottom edges
+            g.setColour (RV::magenta.withAlpha (0.10f));
             g.fillRect (0, y, getWidth(), kRowH);
+            g.setColour (RV::magenta.withAlpha (0.35f));
+            g.fillRect (0, y, getWidth(), 1);
+            g.fillRect (0, y + kRowH - 1, getWidth(), 1);
         }
         else if (row % 16 == 0)
         {
@@ -179,23 +190,24 @@ void PatternEditor::paint (juce::Graphics& g)
             else if (c.hasNote())  noteTxt = noteName (c.note);
 
             const bool empty = ! c.hasNote() && ! c.isNoteOff();
-            const auto dim    = RV::gridEmpty;
-            const auto normal = RV::text;
+            const auto dim = RV::gridEmpty;
 
-            g.setColour (isPlayhead ? RV::magenta : (empty ? dim : normal));
+            // sub-column families: note stays the brightest, the rest gets a
+            // quiet tint each so the eye can scan by kind (FT2 heritage)
+            g.setColour (empty ? dim : RV::text);
             g.drawText (noteTxt, x0 + kSubX[subNote], y, kSubW[subNote], kRowH, juce::Justification::centredLeft);
 
-            g.setColour (c.instrument != 0 ? normal : dim);
+            g.setColour (c.instrument != 0 ? RV::gridInstr : dim);
             g.drawText (c.instrument != 0 ? hex2 (c.instrument) : juce::String (".."),
                         x0 + kSubX[subInstrHi], y, 20, kRowH, juce::Justification::centredLeft);
 
-            g.setColour (empty ? dim : normal);
+            g.setColour (empty ? dim : RV::gridVol);
             g.drawText (empty ? juce::String ("..") : hex2 (c.volume),
                         x0 + kSubX[subVolHi], y, 20, kRowH, juce::Justification::centredLeft);
 
             const bool hasFx = c.effect != FxCmd::kNone || c.effectValue != 0;
             const char fxLetter = FxCmd::letter (c.effect);
-            g.setColour (hasFx ? normal : dim);
+            g.setColour (hasFx ? RV::gridFx : dim);
             g.drawText (hasFx ? (fxLetter != 0 ? juce::String::charToString (fxLetter)
                                                : juce::String (".")) + hex2 (c.effectValue)
                               : juce::String ("..."),

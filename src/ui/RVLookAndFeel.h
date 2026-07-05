@@ -14,8 +14,15 @@ namespace RV
     inline const juce::Colour text      { 0xffd7e4ff };
     inline const juce::Colour textDim   { 0xff5d6b8c };
     inline const juce::Colour gridBg    { 0xff0c1020 };
-    inline const juce::Colour gridBar   { 0xff131a30 };
-    inline const juce::Colour gridEmpty { 0xff33405f };
+    inline const juce::Colour gridBar   { 0xff16203a };   // every-16th-row band
+    inline const juce::Colour gridEmpty { 0xff2a3552 };   // empty-cell texture, deliberately quiet
+    inline const juce::Colour gridSep   { 0xff17203c };   // faint column separators
+
+    // sub-column families (FT2-style scanability, desaturated on purpose):
+    // notes keep RV::text — the primary info stays the brightest
+    inline const juce::Colour gridInstr { 0xff8fb0e8 };   // discreet blue
+    inline const juce::Colour gridVol   { 0xff86c9a8 };   // soft green
+    inline const juce::Colour gridFx    { 0xffd9b98c };   // soft amber
 }
 
 class RVLookAndFeel : public juce::LookAndFeel_V4
