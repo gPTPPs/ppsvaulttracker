@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-// One pattern cell. The effect column is native MIDI per CLAUDE.md; it exists
+// One pattern cell. The effect column is native MIDI by design; it exists
 // in the model from day one but stays inert until the effect phase.
 struct Cell
 {

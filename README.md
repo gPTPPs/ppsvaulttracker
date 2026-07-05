@@ -35,8 +35,7 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
 
 > 🚧 **Status: phase 6 (polish) in progress.** Remaining before v1: splash
 > screen, bundled demo song, and (time permitting) the OUTRUN/LATENT
-> visualizers. See [CLAUDE.md](CLAUDE.md) for the full roadmap and
-> architecture.
+> visualizers.
 
 ## Building
 

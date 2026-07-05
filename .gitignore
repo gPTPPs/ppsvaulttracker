@@ -5,3 +5,4 @@ build*/
 .vs/
 *.user
 CMakeUserPresets.json
+CLAUDE.md

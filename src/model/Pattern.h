@@ -7,7 +7,7 @@
 // Storage is preallocated at fixed capacity with a CONSTANT stride
 // (kMaxChannels), so cell addresses never move: the UI thread edits cells by
 // direct write while the audio thread reads them, lock-free (benign-race
-// design validated in CLAUDE.md §3). Changing the active dimensions never
+// documented design decision). Changing the active dimensions never
 // reallocates.
 class Pattern
 {

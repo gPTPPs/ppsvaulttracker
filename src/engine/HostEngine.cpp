@@ -146,7 +146,7 @@ std::unique_ptr<juce::AudioPluginInstance> HostEngine::createInstance (const juc
 
 juce::String HostEngine::loadInstrument (int ch, const juce::File& file)
 {
-    autosaveBackup();   // CLAUDE.md: always autosave before instantiating a plugin
+    autosaveBackup();   // design rule: always autosave before instantiating a plugin
 
     juce::PluginDescription desc;
     juce::String error;

@@ -3,7 +3,7 @@
 #include "model/Song.h"
 
 // Song <-> JSON (juce::var) serialisation for the .ubt project format.
-// Loading VALIDATES everything (CLAUDE.md: never trust a third-party .ubt):
+// Loading VALIDATES everything (design rule: never trust a third-party .ubt):
 // wrong shapes are fatal errors, out-of-range values are clamped or skipped.
 namespace ProjectIO
 {

@@ -5,7 +5,7 @@
 #include "sequencer/TrackerClock.h"
 
 // MIDI-only graph node that plays the song. Pattern MIDI is generated inside
-// the audio callback at exact sample offsets (CLAUDE.md §2); each tracker
+// the audio callback at exact sample offsets (see class notes below); each tracker
 // channel is emitted on MIDI channel index+1 and fanned out to per-channel
 // instruments by MidiRouterNode.
 //
