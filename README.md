@@ -46,7 +46,9 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
   track and a CC slot (or pitch bend) and draw your sweeps with the mouse
   instead of typing hex. Both views edit the same data, strokes are
   undoable in the grid, and drawing sends the CC live to the plugin — so
-  its MIDI Learn catches the controller instantly
+  its MIDI Learn catches the controller instantly. Toggle **smooth** (`~`)
+  to ramp a lane at tick resolution between your points — no more zipper
+  on filter sweeps, and it exports that way too
 - **Projects** — human-readable `.ubt` folder format (JSON + plugin
   states) with rotating autosave backups
 - **Export for the studio** — multitrack MIDI (SMF type 1), per-channel
@@ -61,8 +63,8 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
 
 > ✨ **Status: v1.1.0-beta.** The engine and workflow are feature-complete.
 > On the roadmap for later releases: a bundled demo song, the OUTRUN/LATENT
-> visualizers from the RetroVault MOD player, CC ramp interpolation, and
-> host-parameter automation for MIDI-less FX plugins.
+> visualizers from the RetroVault MOD player, and host-parameter automation
+> for MIDI-less FX plugins.
 
 ## Download
 
