@@ -12,13 +12,31 @@ Windows + Linux (Ubuntu 24.04 reference). Built with [JUCE 8](https://juce.com)
 
 ![PPsVaultTracker](docs/screenshot.png)
 
-> 🚧 **Status: phase 6 (polish) in progress.** Working today: FT2-style
-> pattern editor (AZERTY/QWERTY), sample-accurate sequencer, up to 16 tracks
-> with one VST3 instrument each, mixer (faders/mute/solo/VU/insert FX +
-> master bus), song mode with order list, .ubt projects with autosave,
-> MIDI/stems WAV/MP3/tracklist export, level-1 module import (MOD/XM/S3M/IT)
-> and the RetroVault synthwave theme. See [CLAUDE.md](CLAUDE.md) for the
-> full roadmap and architecture.
+## Features
+
+- **VST3 hosting** — one instrument per track (up to 16), insert FX chains
+  per channel plus a master bus
+- **FT2-style pattern editor** — hex rows, keyboard navigation, transpose,
+  interpolation, block copy/paste, unlimited undo/redo; AZERTY/QWERTY and
+  FT2/ProTracker keymap presets
+- **Sample-accurate sequencer** — BPM + speed (ticks/row) clock, swing,
+  song mode with order list
+- **Live MIDI recording** — from the virtual keyboard or a hardware MIDI
+  controller, quantized to the nearest row, with metronome and pre-count
+- **Mixer** — faders, mute/solo, VU meters per channel and master
+- **Projects** — human-readable `.ubt` folder format (JSON + plugin
+  states) with rotating autosave backups
+- **Export for the studio** — multitrack MIDI (SMF type 1), per-channel
+  WAV stems, master WAV/MP3 (LAME), and a tracklist of every plugin used —
+  everything imports cleanly into Ableton Live
+- **Module import** — MOD/XM/S3M/IT note data via libopenmpt (level 1:
+  notes, no samples)
+- **RetroVault synthwave theme** — Orbitron, cyan/magenta on deep blue
+
+> 🚧 **Status: phase 6 (polish) in progress.** Remaining before v1: splash
+> screen, bundled demo song, and (time permitting) the OUTRUN/LATENT
+> visualizers. See [CLAUDE.md](CLAUDE.md) for the full roadmap and
+> architecture.
 
 ## Building
 
@@ -34,9 +52,9 @@ ctest --test-dir build -C Release
 JUCE 8.0.14 is downloaded automatically by CMake FetchContent on first
 configure — nothing to install manually.
 
-⚠️ Phase-1 note: plugins load **in-process** with no sandbox yet (the
-out-of-process scanner comes in a later phase). A misbehaving plugin can take
-the app down — only load plugins you trust.
+⚠️ Plugins load **in-process** with no sandbox (documented v1 trade-off,
+like Renoise). A misbehaving plugin can take the app down — only load
+plugins you trust. Autosave has your back.
 
 ## License
 
