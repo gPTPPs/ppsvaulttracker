@@ -16,6 +16,8 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_gui_app(PPsVaultTracker
     PRODUCT_NAME "PPsVaultTracker"
     COMPANY_NAME "TheUNBoRN"
+    ICON_BIG     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.png"
+    ICON_SMALL   "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon_small.png"
     VERSION      ${PROJECT_VERSION})
 
 # embedded assets: Orbitron font (SIL OFL 1.1, see THIRD_PARTY_LICENSES.md)
